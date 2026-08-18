@@ -1,0 +1,22 @@
+// ==UserScript==
+// @name         Hacker News Reader Lite
+// @name:zh-CN   Hacker News Reader Lite
+// @namespace    https://github.com/sunbigfly/hacker-news-reader-lite
+// @version      0.1.0
+// @description  Fast Reddit-style Hacker News comments with translation, AI summaries and offline reading.
+// @description:zh-CN  为 Hacker News 提供 Reddit 式评论树、翻译、AI 总结与离线阅读。
+// @author       sunbigfly
+// @license      MIT
+// @homepageURL  https://github.com/sunbigfly/hacker-news-reader-lite
+// @supportURL   https://github.com/sunbigfly/hacker-news-reader-lite/issues
+// @icon         https://raw.githubusercontent.com/sunbigfly/hacker-news-reader-lite/main/assets/logo.svg
+// @require      https://cdn.jsdelivr.net/npm/@multiavatar/multiavatar@1.0.7/multiavatar.min.js#sha256=c9d10f8a91ef3e2b9dceda9a9d5cb87fb61eb9f6dd67c0f4a478a7363587aaae
+// @match        https://news.ycombinator.com/*
+// @run-at       document-start
+// @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
+// @connect      *
+// ==/UserScript==

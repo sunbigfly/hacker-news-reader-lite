@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+
+# Local builds, caches, and test output
+work/
+coverage/
+.cache/
+.tmp/
+tmp/
+.eslintcache
+*.log
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+playwright-report/
+test-results/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# dist/ is intentionally versioned: Greasy Fork syncs the production
+# userscript from its raw GitHub URL and reacts to file modifications.

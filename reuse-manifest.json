@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "https://github.com/sunbigfly/awesome-linuxdo-reader",
+    "commit": "eec5e110d6e003c790947df294ef05a44e8bac8d",
+    "license": "MIT"
+  },
+  "entries": [
+    {
+      "source": "lite/src/kernel/lifecycle.ts",
+      "sourceSha256": "8b8b2ccae7437d794799c0a26fd4258ce04e126181396d2ee18e7dea48d2cd62",
+      "target": "lite/src/kernel/lifecycle.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/kernel.test.ts"]
+    },
+    {
+      "source": "lite/src/kernel/signal.ts",
+      "sourceSha256": "9e0cff36c2177073a516fade2a21fee65bb7ac09607649e2c719742a2c129ae4",
+      "target": "lite/src/kernel/signal.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/kernel.test.ts"]
+    },
+    {
+      "source": "lite/src/kernel/repeat-action-gate.ts",
+      "sourceSha256": "405ed67abebe6114e3bf920269d0e06acd24f7aa7089e329bd65a7eefffa467a",
+      "target": "lite/src/kernel/repeat-action-gate.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/kernel.test.ts"]
+    },
+    {
+      "source": "lite/src/dom/event-target.ts",
+      "sourceSha256": "7e486dde4a1615d7509486f91752765d59762d7ee30e373d3a730e51ec3f997d",
+      "target": "lite/src/dom/event-target.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/dom-helpers.test.ts"]
+    },
+    {
+      "source": "lite/src/dom/floating-surface-wheel.ts",
+      "sourceSha256": "cb4847a740a6e3124810384f7963c536d57456e9834e71bfdde2e590260fca8d",
+      "target": "lite/src/dom/floating-surface-wheel.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/floating-surface-wheel.test.ts"],
+      "removed": ["latched host target registry"]
+    },
+    {
+      "source": "lite/src/dom/html-element.ts",
+      "sourceSha256": "67cadf2903ac7d3c55b0e65cd9828d3b33fcc50916b623b29b38b675f72b3d09",
+      "target": "lite/src/dom/html-element.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/dom-helpers.test.ts"]
+    },
+    {
+      "source": "lite/src/network/request-scheduler.ts",
+      "sourceSha256": "327537da25b41fe287048edb5b96f8f0976e42a61bccf41c9cbfa438bc8cc0c7",
+      "target": "lite/src/network/request-scheduler.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/request-scheduler.test.ts"],
+      "removed": ["Discourse lanes", "rate-limit cooldown", "large diagnostics surface"]
+    },
+    {
+      "source": "lite/src/cache/indexeddb-response-cache-store.ts",
+      "sourceSha256": "9e8743dbf8e5060e156abde4e4e0a5e5eb3815966802707f2a91a9c54243500b",
+      "target": "lite/src/cache/indexeddb-cache-store.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/cache.test.ts"],
+      "removed": ["Discourse response envelope", "auth scope"]
+    },
+    {
+      "source": "lite/src/translation/translation-text.ts",
+      "sourceSha256": "a587f2264c8e69df4c29efdfc79172c77519fca6e0ba9aa946df80751ab9e4b4",
+      "target": "lite/src/translation/translation-text.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/translation-text.test.ts"],
+      "removed": ["Discourse quote selectors", "LDP translation classes"]
+    },
+    {
+      "source": "lite/src/translation/translation-task-manager.ts",
+      "sourceSha256": "25743682d88ab5f2e9c66c8d9da914aef33eb3cd435fb907b3a2d35501226562",
+      "target": "lite/src/translation/translation-task-manager.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/translation-task-manager.test.ts"],
+      "removed": ["Discourse request lanes", "large scheduler diagnostics"]
+    },
+    {
+      "source": "lite/src/shell/reader-workspace.ts",
+      "sourceSha256": "48837eddefba6208c03437dfceea81ab115842737f6592b31ac086792edb76c1",
+      "target": "lite/src/shell/reader-workspace.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/reader-workspace.test.ts"],
+      "removed": ["multi-tool workspace", "tab groups", "persistent geometry registry"]
+    },
+    {
+      "source": "lite/styles/40-reply-tree.css",
+      "sourceSha256": "ff98b2d03e6500b58912a5f8229d3d71ac0803cb5df1fafb0dc869fe6f0c345e",
+      "target": "lite/styles/10-reader.css",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/reader-view.test.ts"],
+      "removed": ["Discourse nested post DOM", "SVG branch overlay", "rail hit targets"]
+    },
+    {
+      "source": "lite/src/post/reader-topic-custom-summary.ts",
+      "sourceSha256": "bdd7aa3b8a1bc6d145a55e59000dfe7ee8771d37ab2a43839eeb66da5201ff08",
+      "target": "lite/src/summary/summary-service.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/summary-service.test.ts"],
+      "removed": ["Discourse topic schema", "native summary", "share card and image flow"]
+    },
+    {
+      "source": "lite/src/archive/reader-topic-offline-document.ts",
+      "sourceSha256": "16e02dad37e2361881f38bdeb5ff6b3b8d10bc2cc3c77df66581ab76db1ee7c5",
+      "target": "lite/src/offline/offline-document.ts",
+      "status": "adapted-owner",
+      "tests": ["lite/tests/offline-document.test.ts"],
+      "removed": ["Discourse archive schema", "reaction and quote projections", "download history manager"]
+    }
+  ]
+}

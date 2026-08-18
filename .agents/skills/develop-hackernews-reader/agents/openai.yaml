@@ -1,0 +1,4 @@
+interface:
+  display_name: "开发 Hacker News Reader"
+  short_description: "开发和验证 Hacker News Lite 油猴阅读器"
+  default_prompt: "Use $develop-hackernews-reader to implement a scoped Hacker News Reader Lite change and verify its source, tests, build, and performance boundaries."

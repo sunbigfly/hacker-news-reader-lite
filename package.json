@@ -1,0 +1,30 @@
+{
+  "name": "hacker-news-reader-lite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "hn-lite:lint": "eslint eslint.config.mjs scripts/*.mjs \"lite/{src,tests}/**/*.ts\"",
+    "hn-lite:typecheck": "tsc --project tsconfig.json --noEmit",
+    "hn-lite:test": "vitest run --passWithNoTests",
+    "hn-lite:build:local": "node scripts/build-userscript.mjs --local",
+    "hn-lite:local-debug": "npm run hn-lite:build:local && node scripts/audit-local-debug.mjs",
+    "hn-lite:build": "node scripts/build-userscript.mjs",
+    "hn-lite:audit": "node scripts/audit-userscript.mjs",
+    "hn-lite:verify": "npm run hn-lite:lint && npm run hn-lite:typecheck && npm run hn-lite:test && npm run hn-lite:build && npm run hn-lite:audit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.1",
+    "esbuild": "0.25.12",
+    "eslint": "^10.0.1",
+    "fake-indexeddb": "^6.2.4",
+    "jsdom": "^27.2.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.48.1",
+    "vitest": "^4.0.15"
+  }
+}

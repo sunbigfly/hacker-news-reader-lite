@@ -1,0 +1,18 @@
+<!doctype html>
+<html>
+<head><base href="https://news.ycombinator.com/"></head>
+<body>
+<table class="fatitem">
+  <tr class="athing" id="100"><td class="title"><span class="titleline"><a href="https://example.com/article">Example story</a></span></td></tr>
+  <tr><td class="subtext"><span class="score">42 points</span> by <a class="hnuser">alice</a></td></tr>
+  <tr><td><div class="toptext"><p>Story text</p></div></td></tr>
+  <tr><td><form action="comment"><textarea></textarea></form></td></tr>
+</table>
+<table class="comment-tree">
+  <tr class="athing comtr" id="101"><td class="ind"><img width="0"></td><td><span class="comhead"><a class="hnuser">bob</a><span class="age" title="2026-08-16T08:00:00Z"><a href="item?id=101">now</a></span></span><div class="comment"><span class="commtext c00">Root <a href="item?id=100">link</a></span></div></td></tr>
+  <tr class="athing comtr" id="102"><td class="ind"><img width="40"></td><td><span class="comhead"><a class="hnuser">carol</a></span><div class="comment"><span class="commtext c00">Child <code>x()</code></span></div></td></tr>
+  <tr class="athing comtr" id="103"><td class="ind"><img width="80"></td><td><span class="comhead"><a class="hnuser">dave</a></span><div class="comment"><span class="commtext c00">Grandchild<script>alert(1)</script></span></div></td></tr>
+  <tr class="athing comtr" id="104"><td class="ind"><img width="0"></td><td><span class="comhead"></span><div class="comment"><span class="commtext c00">[deleted]</span></div></td></tr>
+</table>
+</body>
+</html>

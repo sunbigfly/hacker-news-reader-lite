@@ -1,0 +1,4 @@
+interface:
+  display_name: "发布 Hacker News Reader"
+  short_description: "验证、构建并安全发布 Hacker News Reader"
+  default_prompt: "Use $release-hackernews-reader to verify and prepare an explicitly authorized Hacker News Reader release."
