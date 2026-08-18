@@ -37,17 +37,17 @@ describe("reader settings", () => {
     expect(store.load().translationEnabled).toBe(true);
   });
 
-  it("migrates old records to the preserved serif default and normalizes font settings", () => {
+  it("migrates old records to the default reading typography and normalizes font settings", () => {
     const old = normalizeSettings({ schemaVersion: 1 });
     expect(old).toMatchObject({
-      titleFontFamily: "serif",
+      titleFontFamily: "system",
       titleCustomFontFamily: "",
-      fontFamily: "serif",
+      fontFamily: "system",
       customFontFamily: "",
       fontRenderingEnabled: true,
-      fontWeight: 400,
-      fontScale: 1,
-      lineHeight: 1.62,
+      fontWeight: 500,
+      fontScale: 0.92,
+      lineHeight: 1.52,
     });
 
     const custom = normalizeSettings({

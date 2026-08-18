@@ -2175,6 +2175,7 @@ export class ReaderView {
       const id = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
       this.#focusComment(id);
       this.#startNewCommentHighlightTimers([id]);
+      this.#consumeNewComment(id);
     }
     if (action === "close-summary") this.#removeSummarySurface();
     if (action === "locate-summary-comment" && actionElement.dataset.commentId) {
@@ -2219,6 +2220,9 @@ export class ReaderView {
   #renderNewCommentsNotice(): void {
     const count = this.#newCommentNoticeIds.length;
     if (count === 0) {
+      this.#newCommentsLabel.textContent = "";
+      this.#newCommentsCurrent.removeAttribute("data-comment-id");
+      this.#newCommentsCurrent.setAttribute("aria-label", "定位当前新评论");
       this.#newCommentsNotice.hidden = true;
       return;
     }
@@ -2253,7 +2257,18 @@ export class ReaderView {
   #dismissNewComments(): void {
     this.#newCommentNoticeIds.length = 0;
     this.#newCommentNoticeIndex = 0;
-    this.#newCommentsNotice.hidden = true;
+    this.#renderNewCommentsNotice();
+  }
+
+  #consumeNewComment(id: CommentId): void {
+    const index = this.#newCommentNoticeIds.indexOf(id);
+    if (index < 0) return;
+    this.#newCommentNoticeIds.splice(index, 1);
+    if (index < this.#newCommentNoticeIndex) this.#newCommentNoticeIndex -= 1;
+    else if (this.#newCommentNoticeIndex >= this.#newCommentNoticeIds.length) {
+      this.#newCommentNoticeIndex = Math.max(0, this.#newCommentNoticeIds.length - 1);
+    }
+    this.#renderNewCommentsNotice();
   }
 
   #startNewCommentHighlightTimers(ids: readonly CommentId[]): void {

@@ -19,6 +19,18 @@ describe("HnHostController", () => {
     );
   });
 
+  it("wraps narrow topbar tabs and keeps embedded native forms inside the host pane", () => {
+    const css = readFileSync(resolve("lite/styles/05-host.css"), "utf8");
+
+    expect(css).toMatch(
+      /\[data-hnr-topbar-navigation\] \.pagetop \{[^}]*flex-wrap: wrap;[^}]*overflow-x: visible;[^}]*white-space: normal;/s,
+    );
+    expect(css).toContain(':is([op="reply"], [op="submit"])');
+    expect(css).toMatch(
+      /#hnmain form :is\(input\[type="text"\], input:not\(\[type\]\), textarea\) \{[^}]*width: 100% !important;[^}]*min-width: 0;/s,
+    );
+  });
+
   it("installs the host skin before the HN body is available", () => {
     document.documentElement.innerHTML = "<head></head><body></body>";
     const scope = new LifecycleScope();

@@ -1385,6 +1385,10 @@ export class ReaderController {
     this.document.title = this.#readerDocumentTitle;
   }
 
+  syncHostPageLayout(): void {
+    this.#workspace?.syncHostPageLayout();
+  }
+
   #setReaderDocumentTitle(title: string): void {
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return;

@@ -2,7 +2,7 @@ import type { CommentId, StoryId } from "../thread/model";
 
 export const DEFAULT_READER_RATIO = 0.52;
 export const MIN_READER_RATIO = 0.32;
-export const MAX_READER_RATIO = 0.75;
+export const MAX_READER_RATIO = 0.9;
 
 export interface ReaderWorkspaceState {
   readonly schemaVersion: 2;

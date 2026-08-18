@@ -122,6 +122,7 @@ export function bootstrapHackerNewsReader(): void {
         host,
         () => {
           pagination.resetForListPage();
+          reader.syncHostPageLayout();
           reader.syncHostDocumentTitle();
         },
         scope,

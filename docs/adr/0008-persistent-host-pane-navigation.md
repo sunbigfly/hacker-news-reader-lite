@@ -5,7 +5,7 @@
 
 ## 决策
 
-`HnHostNavigationController` 在 capture 阶段只接管顶部 `welcome`、`new`、`threads`、`past`、`comments`、`ask`、`show`、`jobs`、`submit` 导航与 Reader 回复命令显式发起的 `/reply`。这些页面由 `HnHostPageAdapter` 使用页面原生同源 `fetch` 请求，`HnHostController` 保留顶栏外壳、宿主滚动容器和 `#hn-reader-workspace`，仅事务替换顶栏之后的宿主内容。
+`HnHostNavigationController` 在 capture 阶段只接管顶部 `welcome`、`new`、`threads`、`past`、`comments`、`ask`、`show`、`jobs`、`submit` 导航与 Reader 回复命令显式发起的 `/reply`。这些页面由 `HnHostPageAdapter` 使用页面原生同源 `fetch` 请求，`HnHostController` 保留顶栏外壳、宿主滚动容器和 `#hn-reader-workspace`，仅事务替换顶栏之后的宿主内容。宿主窄化时顶部 Tab 自动换行；导入 `submit`/`reply` 原生表单时宿主临时扩展到至少 62%，用户主动拖动时立即解除自动宽度并保存新比例，否则离开后恢复原有比例；表单必须约束在当前宿主面板宽度内，不得用固定 `size`/`cols` 撑宽左栏。
 
 无 modifier 主键点击任意 `item?id=*` 时，capture owner 阻止它进入宿主 loader，改为调用 Reader item 入口。故事 ID 直接打开；评论 ID 通过已载入树、当前 DOM 或官方 API `parent` 链解析所属故事，然后定位真实评论。该操作不替换宿主内容、不写宿主 history、不改变宿主 URL。如果 userscript 直接从 `item` URL 启动，当前 DOM 先交给 Reader，左侧再静默显示默认 `news` tab，地址栏仍保留 item 目标。
 

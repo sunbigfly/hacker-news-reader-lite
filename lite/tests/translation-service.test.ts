@@ -89,6 +89,19 @@ class ParallelTranslationHttp extends TranslationHttp {
   }
 }
 
+class FormattedGoogleTokenHttp extends TranslationHttp {
+  override request<T>(descriptor: RequestDescriptor<T>): Promise<T> {
+    if (!descriptor.url.includes("googleapis")) return super.request(descriptor);
+    this.calls.push(descriptor.url);
+    this.bodies.push(descriptor.body ?? "");
+    this.keys.push(descriptor.key);
+    const values = new URL(descriptor.url).searchParams.getAll("q")
+      .map((source) => [source.replaceAll("⟦900001⟧", "⟦\u200b\u200b900001⟧")]);
+    const body = JSON.stringify(values);
+    return Promise.resolve(descriptor.decode({ status: 200, statusText: "OK", headers: {}, body, finalUrl: descriptor.url }));
+  }
+}
+
 class ParallelAiTranslationHttp extends TranslationHttp {
   aiAttempts = 0;
   releaseFirst: (() => void) | null = null;
@@ -265,6 +278,21 @@ describe("TranslationService", () => {
     expect(outputs[0]?.html).toContain("<code>npm test</code>");
     expect(http.calls.some((url) => url.includes("googleapis"))).toBe(true);
     expect(http.calls.some((url) => url.includes("microsofttranslator"))).toBe(true);
+    tasks.destroy();
+  });
+
+  it("accepts ignorable format characters that Google inserts inside protected tokens", async () => {
+    const http = new FormattedGoogleTokenHttp();
+    const tasks = new TranslationTaskManager();
+    const service = new TranslationService(document, http, tasks, new CacheRepository(new MemoryCacheStore()), new AiCompletionClient(http));
+    const html = "Opening context for this comment.<p>There is no shortage of people discussing with AI bots in comment sections.</p>";
+
+    const output = (await service.translateMany([{ id: 49328209, html }], DEFAULT_SETTINGS, new AbortController().signal))[0];
+
+    expect(output?.provider).toBe("google");
+    expect(output?.complete).toBe(true);
+    expect(output?.html).not.toContain("900001");
+    expect(http.calls).toHaveLength(1);
     tasks.destroy();
   });
 

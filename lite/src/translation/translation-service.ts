@@ -76,6 +76,16 @@ const TRANSLATION_BATCH_MAX_CHARS = 8_000;
 const PUBLIC_TRANSLATION_BATCH_MAX_CHARS = 2_800;
 const AI_EXCERPT_MIN_CHARS = 80;
 const AI_EXCERPT_MIN_ADDITIONAL_CHARS = 32;
+const FORMATTED_PROTECTED_TOKEN_PATTERN = /⟦([\d\p{Cf}\p{White_Space}]+)⟧/gu;
+const PROTECTED_TOKEN_IGNORABLE_PATTERN = /[\p{Cf}\p{White_Space}]/gu;
+
+function normalizeProtectedTokenFormatting(value: string): string {
+  return value.replace(FORMATTED_PROTECTED_TOKEN_PATTERN, (token, body: string) => {
+    const digits = body.replace(PROTECTED_TOKEN_IGNORABLE_PATTERN, "");
+    return /^\d+$/.test(digits) ? `⟦${digits}⟧` : token;
+  });
+}
+
 function contextText(value: string, edge: "start" | "end"): string {
   const plain = value.replace(TOKEN_PATTERN, "").replace(/\s+/g, " ").trim();
   return edge === "start" ? plain.slice(0, 320) : plain.slice(-320);
@@ -109,10 +119,11 @@ function extractSectionTranslation(source: string, translated: string): string {
 }
 
 function validatedResults(values: readonly string[], sources: readonly string[], provider: string): readonly string[] {
-  if (values.length !== sources.length || values.some((value, index) => !value.trim() || !translationProtectedTokensMatch(sources[index] ?? "", value))) {
+  const normalized = values.map(normalizeProtectedTokenFormatting);
+  if (normalized.length !== sources.length || normalized.some((value, index) => !value.trim() || !translationProtectedTokensMatch(sources[index] ?? "", value))) {
     throw new Error(`${provider} 返回的译文不完整或改写了正文占位符`);
   }
-  return Object.freeze(values.map((value) => value.trim()));
+  return Object.freeze(normalized.map((value) => value.trim()));
 }
 
 function parseJsonRecord(raw: string): Readonly<Record<string, string>> {

@@ -6,7 +6,7 @@
 
 ## 决策
 
-HN 列表保留宿主 DOM、内容顺序和子操作，但由 userscript 可逆地投影为与 Reader 一致的紧凑卡片清单和顶部标签栏。宿主皮肤在 `document-start` 安装，业务 owner 延后到 `DOMContentLoaded`；Tabs 保持单行可水平收纳，用户区保持同行靠右。卡片空白区与标题的无 modifier 主键点击，以及卡片聚焦时的 Enter/Space，直接打开评论 Reader。
+HN 列表保留宿主 DOM、内容顺序和子操作，但由 userscript 可逆地投影为与 Reader 一致的紧凑卡片清单和顶部标签栏。宿主皮肤在 `document-start` 安装，业务 owner 延后到 `DOMContentLoaded`；Tabs 在宽度充足时保持单行，宽度不足时自动换行而不隐藏或水平滚动，账号区对齐第一行 Tab，续行 Tab 使用无孤立分隔符的紧凑间距。卡片空白区与标题的无 modifier 主键点击，以及卡片聚焦时的 Enter/Space，直接打开评论 Reader。
 
 受支持的同源故事列表 Tab 使用共享 HN HTML scheduler 请求目标页，并在当前文档内事务替换左侧宿主列表、Footer 与列表上下文；右侧 Reader 和顶栏外壳保持挂载。成功后同步选中态、标题与 history，后退/前进复用同一事务；失败保留当前列表。非故事列表页面、modified 点击和显式新标签继续走原生导航。
 

@@ -80,8 +80,9 @@ npm run hn-lite:verify
 
 - 建立脱敏 fixture：列表、普通讨论、深层树、deleted/dead、缺失/更多、纯文本 Ask HN。
 - 实现 route、story link、comment entry 与 modifier/new-tab 语义。
-- 在不重建宿主列表的前提下投影紧凑 Discourse 式故事卡片、同气质的 `/newcomments`/`/threads` 评论卡片和 Reader 风格顶部标签栏；评论卡片空白区与卡内 HN 讨论链接进入 Reader，投票、作者和外站链接保留原生；皮肤先于首次可见绘制安装，顶部只保留 Logo，Tabs 不换行且用户区固定靠右；故事卡片空白区/标题与 Enter/Space 进入 Reader，modified 标题点击与其他原生操作保留。
+- 在不重建宿主列表的前提下投影紧凑 Discourse 式故事卡片、同气质的 `/newcomments`/`/threads` 评论卡片和 Reader 风格顶部标签栏；评论卡片空白区与卡内 HN 讨论链接进入 Reader，投票、作者和外站链接保留原生；皮肤先于首次可见绘制安装，顶部只保留 Logo，Tabs 在宿主宽度不足时自动换行且用户区保持靠右；故事卡片空白区/标题与 Enter/Space 进入 Reader，modified 标题点击与其他原生操作保留。
 - Reader 关闭时顶部 tab 保持原生跳转；Reader 打开后，只有顶部 tab 和 Reader 回复命令发起的 `/reply` 才通过共享、总并发为 2 的 HN HTML scheduler 静默获取并事务替换左侧宿主。`item?id=*` 在 capture 阶段统一改发 Reader；评论 ID 沿官方 API parent 链解析所属故事并定位，不更改宿主 tab、内容或 URL。已访问 tab 使用有上限的会话内 LRU 缓存立即切换并后台重新验证；失败保留当前宿主页，其他 HN 页面、写操作、modifier 和新标签语义不接管。
+- 导入 `submit`/`reply` 原生表单时把宿主临时扩展到至少 62%，字段和文本框继续受当前面板宽度约束；用户主动拖动分隔线时解除自动宽度并按既有语义保存新比例，否则离开表单后恢复原有分栏比例。
 - 宿主滚动进入底部阈值后经页面原生同源 adapter 自动请求 More；滚动捕获与 More 可见性哨兵共同触发，与 Reader 评论页和宿主 tab 共享同一个有界 HN HTML scheduler，More 使用更低的 supplement 优先级，同 URL 去重、可取消，首次失败只自动重试一次。新行插入 Footer 前并复用卡片/翻译合同，持续失败显示提示并保留手动 More。
 - 实现一次性 DOM parser，选择器仅存在于 host adapter。
 

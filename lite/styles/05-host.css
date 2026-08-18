@@ -134,7 +134,7 @@ html.hnr-host-enhanced [data-hnr-topbar-row] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: center;
+  align-items: start;
   width: 100%;
 }
 
@@ -148,7 +148,7 @@ html.hnr-host-enhanced [data-hnr-topbar-row] > td {
 
 html.hnr-host-enhanced [data-hnr-topbar-navigation] {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 html.hnr-host-enhanced [data-hnr-topbar-account] {
@@ -193,6 +193,16 @@ html.hnr-host-enhanced [data-hnr-topbar] .pagetop {
 
 html.hnr-host-enhanced [data-hnr-topbar] .pagetop::-webkit-scrollbar {
   display: none;
+}
+
+html.hnr-host-enhanced [data-hnr-topbar-navigation] .pagetop {
+  flex-wrap: wrap;
+  column-gap: 4px;
+  row-gap: 0;
+  align-content: flex-start;
+  overflow-x: visible;
+  font-size: 0;
+  white-space: normal;
 }
 
 html.hnr-host-enhanced [data-hnr-topbar] .pagetop a,
@@ -794,6 +804,49 @@ html.hnr-reader-embedded-right.hnr-host-enhanced #hnmain {
   width: 100% !important;
 }
 
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain > tbody > tr:not(:first-child) > td {
+  box-sizing: border-box;
+  width: 100% !important;
+  min-width: 0;
+  padding-inline: clamp(12px, 3%, 24px) !important;
+  overflow-wrap: anywhere;
+}
+
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain form,
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain form table {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed;
+}
+
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain form td {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain form :is(input[type="text"], input:not([type]), textarea) {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+}
+
+html.hnr-reader-embedded-right.hnr-host-enhanced:is([op="reply"], [op="submit"])
+  #hnmain form textarea {
+  display: block;
+  resize: vertical;
+}
+
 html.hnr-reader-embedded-right.hnr-host-list table.itemlist {
   width: 100% !important;
   margin-inline: 0;
@@ -814,11 +867,13 @@ html.hnr-reader-embedded-right.hnr-host-enhanced [data-hnr-topbar-account] .page
 }
 
 html.hnr-reader-embedded-right.hnr-host-enhanced [data-hnr-topbar] > table {
-  padding-inline: 6px !important;
+  padding: 4px 6px !important;
 }
 
 html.hnr-reader-embedded-right.hnr-host-enhanced [data-hnr-topbar] .pagetop a,
 html.hnr-reader-embedded-right.hnr-host-enhanced [data-hnr-topbar] .pagetop .topsel:not(:has(> a)) {
+  min-height: 24px;
+  padding-block: 3px;
   padding-inline: 5px;
   font-size: 11px;
 }

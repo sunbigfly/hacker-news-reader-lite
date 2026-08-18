@@ -50,7 +50,59 @@ describe("ReaderWorkspace", () => {
     expect(readerEmbedWidth(1100)).toBe(572);
     expect(readerEmbedWidth(900)).toBe(468);
     expect(readerEmbedWidth(1_000, 0.6)).toBe(600);
-    expect(readerEmbedWidth(1_000, 1)).toBe(750);
+    expect(readerEmbedWidth(1_000, 1)).toBe(900);
+  });
+
+  it("temporarily widens the host for native reply and submit forms", () => {
+    document.documentElement.innerHTML = "<head></head><body><center><table id='hnmain'></table></center></body>";
+    const onReaderRatioChange = vi.fn();
+    const scope = new LifecycleScope();
+    const workspace = new ReaderWorkspace(document, scope, { onReaderRatioChange });
+
+    document.documentElement.setAttribute("op", "reply");
+    workspace.syncHostPageLayout();
+    expect(workspace.root.style.getPropertyValue("width")).toBe("38%");
+    expect(document.body.style.getPropertyValue("width")).toBe("62%");
+    expect(onReaderRatioChange).not.toHaveBeenCalled();
+
+    document.documentElement.setAttribute("op", "news");
+    workspace.syncHostPageLayout();
+    expect(workspace.root.style.getPropertyValue("width")).toBe("52%");
+    expect(document.body.style.getPropertyValue("width")).toBe("48%");
+    expect(onReaderRatioChange).not.toHaveBeenCalled();
+    scope.destroy();
+  });
+
+  it("releases the automatic form width as soon as the divider is dragged", () => {
+    document.documentElement.innerHTML = "<head></head><body><center><table id='hnmain'></table></center></body>";
+    const onReaderRatioChange = vi.fn();
+    const scope = new LifecycleScope();
+    const workspace = new ReaderWorkspace(document, scope, { onReaderRatioChange });
+    const viewportWidth = window.innerWidth;
+
+    document.documentElement.setAttribute("op", "reply");
+    workspace.syncHostPageLayout();
+    expect(workspace.root.style.getPropertyValue("width")).toBe("38%");
+
+    workspace.divider.dispatchEvent(new MouseEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: viewportWidth * 0.62,
+    }));
+    window.dispatchEvent(new MouseEvent("pointermove", {
+      bubbles: true,
+      clientX: viewportWidth / 2,
+    }));
+    window.dispatchEvent(new MouseEvent("pointerup", {
+      bubbles: true,
+      clientX: viewportWidth / 2,
+    }));
+
+    expect(workspace.root.style.getPropertyValue("width")).toBe("50%");
+    expect(document.body.style.getPropertyValue("width")).toBe("50%");
+    expect(onReaderRatioChange).toHaveBeenCalledOnce();
+    expect(onReaderRatioChange).toHaveBeenCalledWith(0.5);
+    scope.destroy();
   });
 
   it("resizes from the divider and commits the ratio when the pointer is released", () => {
@@ -79,6 +131,34 @@ describe("ReaderWorkspace", () => {
     expect(workspace.divider.getAttribute("aria-valuenow")).toBe("75");
     expect(onReaderRatioChange).toHaveBeenCalledOnce();
     expect(onReaderRatioChange).toHaveBeenCalledWith(0.75);
+    scope.destroy();
+  });
+
+  it("lets the host collapse to ten percent without losing persistence", () => {
+    document.documentElement.innerHTML = "<head></head><body><center><table id='hnmain'></table></center></body>";
+    const onReaderRatioChange = vi.fn();
+    const scope = new LifecycleScope();
+    const workspace = new ReaderWorkspace(document, scope, { onReaderRatioChange });
+    const viewportWidth = window.innerWidth;
+
+    workspace.divider.dispatchEvent(new MouseEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: viewportWidth / 2,
+    }));
+    window.dispatchEvent(new MouseEvent("pointermove", {
+      bubbles: true,
+      clientX: viewportWidth * 0.05,
+    }));
+    window.dispatchEvent(new MouseEvent("pointerup", {
+      bubbles: true,
+      clientX: viewportWidth * 0.05,
+    }));
+
+    expect(workspace.root.style.getPropertyValue("width")).toBe("90%");
+    expect(document.body.style.getPropertyValue("width")).toBe("10%");
+    expect(workspace.divider.getAttribute("aria-valuemax")).toBe("90");
+    expect(onReaderRatioChange).toHaveBeenCalledWith(0.9);
     scope.destroy();
   });
 });

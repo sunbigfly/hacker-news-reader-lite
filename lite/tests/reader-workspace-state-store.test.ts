@@ -17,7 +17,7 @@ describe("reader workspace state", () => {
     });
     expect(normalizeReaderWorkspaceState({ readerRatio: 1, lastClosedStoryId: -1 })).toEqual({
       ...DEFAULT_READER_WORKSPACE_STATE,
-      readerRatio: 0.75,
+      readerRatio: 0.9,
     });
     expect(normalizeReaderWorkspaceState({ readerRatio: 0.58, lastClosedStoryId: 41 })).toEqual({
       schemaVersion: 2,

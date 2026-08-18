@@ -94,7 +94,7 @@ describe("ReaderView", () => {
     expect(css).toMatch(/\.hnr-new-comments-notice\s*\{[^}]*border-radius: 999px;[^}]*pointer-events: auto;/s);
   });
 
-  it("keeps a navigable new-comment notice while visible highlights expire five seconds after entering the viewport", async () => {
+  it("consumes clicked new-comment notices while visible highlights expire after entering the viewport", async () => {
     vi.useFakeTimers();
     try {
       document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
@@ -127,12 +127,21 @@ describe("ReaderView", () => {
       expect(current?.dataset.commentId).toBe(String(ids[0]));
       expect(view.surfaceRoot.activeElement?.closest<HTMLElement>(".hnr-comment")?.dataset.commentId).toBe(String(ids[0]));
 
+      current?.click();
+      expect(notice?.hidden).toBe(false);
+      expect(notice?.textContent).toContain("新评论 1/1");
+      expect(current?.dataset.commentId).toBe(String(ids[1]));
+      current?.click();
+      expect(notice?.hidden).toBe(true);
+      expect(current?.dataset.commentId).toBeUndefined();
+
       vi.advanceTimersByTime(4_999);
       expect(view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${ids[0]}"]`)?.dataset.newComment).toBe("true");
       vi.advanceTimersByTime(1);
       for (const id of ids) {
         expect(view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.hasAttribute("data-new-comment")).toBe(false);
       }
+      view.announceNewComments(ids);
       expect(notice?.hidden).toBe(false);
       close?.click();
       expect(notice?.hidden).toBe(true);
@@ -1021,11 +1030,11 @@ describe("ReaderView", () => {
     expect(view.surfaceRoot.querySelectorAll(".hnr-font-range-value")[0]?.textContent).toBe("120%");
 
     view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-settings-cancel")?.click();
-    expect(host.style.getPropertyValue("--hnr-title-font-family")).toContain("Charter");
-    expect(host.style.getPropertyValue("--hnr-content-font-family")).toContain("Charter");
-    expect(host.style.getPropertyValue("--hnr-content-font-weight")).toBe("400");
-    expect(host.style.getPropertyValue("--hnr-font-scale")).toBe("1");
-    expect(host.style.getPropertyValue("--hnr-line-height")).toBe("1.62");
+    expect(host.style.getPropertyValue("--hnr-title-font-family")).toContain("system-ui");
+    expect(host.style.getPropertyValue("--hnr-content-font-family")).toContain("system-ui");
+    expect(host.style.getPropertyValue("--hnr-content-font-weight")).toBe("500");
+    expect(host.style.getPropertyValue("--hnr-font-scale")).toBe("0.92");
+    expect(host.style.getPropertyValue("--hnr-line-height")).toBe("1.52");
     expect(host.dataset.fontRendering).toBe("builtin");
     expect(onSave).not.toHaveBeenCalled();
     scope.destroy();

@@ -83,14 +83,14 @@ export const DEFAULT_SETTINGS: ReaderSettings = Object.freeze({
     requestsPerMinute: 0,
     tokensPerMinute: 0,
   }),
-  titleFontFamily: "serif",
+  titleFontFamily: "system",
   titleCustomFontFamily: "",
-  fontFamily: "serif",
+  fontFamily: "system",
   customFontFamily: "",
   fontRenderingEnabled: true,
-  fontWeight: 400,
-  fontScale: 1,
-  lineHeight: 1.62,
+  fontWeight: 500,
+  fontScale: 0.92,
+  lineHeight: 1.52,
   theme: "auto",
 });
 
@@ -166,8 +166,8 @@ export function normalizeSettings(value: unknown): ReaderSettings {
     customFontFamily: normalizeCustomFontFamily(record.customFontFamily),
     fontRenderingEnabled: record.fontRenderingEnabled !== false,
     fontWeight,
-    fontScale: numberInRange(record.fontScale, 1, 0.85, 1.35),
-    lineHeight: numberInRange(record.lineHeight, 1.62, 1.35, 2),
+    fontScale: numberInRange(record.fontScale, DEFAULT_SETTINGS.fontScale, 0.85, 1.35),
+    lineHeight: numberInRange(record.lineHeight, DEFAULT_SETTINGS.lineHeight, 1.35, 2),
     theme: themes.has(record.theme as ReaderTheme) ? record.theme as ReaderTheme : DEFAULT_SETTINGS.theme,
   };
 }

@@ -165,7 +165,7 @@ ThreadSnapshot {
 
 ### 7.1 评论 Reader
 
-- `ReaderWorkspace` 默认按 48% HN 宿主 + 52% Reader 锚定；左缘 `separator` 可用鼠标拖动或方向键调整，Reader 比例限制为 32%..75%，只在交互提交时写入 GM Storage，后续会话恢复。
+- `ReaderWorkspace` 默认按 48% HN 宿主 + 52% Reader 锚定；左缘 `separator` 可用鼠标拖动或方向键调整，Reader 比例限制为 32%..90%，宿主最窄 10% 且表单/文本必须在面板内折行收缩；只在交互提交时写入 GM Storage，后续会话恢复。
 - HN 原生 `#hnmain[width="85%"]`、`#hnmain { min-width: 796px }` 以及父级 `<center>` 都属于工作区几何输入。打开时逐项快照并用内联 `!important` 归一化 `html > body > center > #hnmain`；Reader 根节点直接作为 `html` 子节点固定到右侧，避免相对已压缩宿主再次计算百分比。
 - 列表和 Reader 各自滚动，滚动条统一为 5 px 灰色窄轨。分栏时宿主 `<center>` 作为从冻结标题下方开始的独立滚动容器，标题行固定在宿主顶部；scope 销毁时按逆序恢复几何与滚动位置。
 - Reader 成功挂载帖子时立即记录 StoryId；Reader 关闭时在用户名左侧提供恢复入口，点击后通过同一 `HnPageFetchAdapter` DOM-first 主链打开该帖子，并高亮、滚动显露宿主列表中对应的故事卡片；Reader 打开期间隐藏入口。当前 URL 是 `item?id=*` 时仍直接打开该 item 目标，不引入轮询。

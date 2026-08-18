@@ -1,10 +1,12 @@
 import { LifecycleScope } from "../kernel/lifecycle";
 import {
   DEFAULT_READER_RATIO,
+  MAX_READER_RATIO,
   normalizeReaderRatio,
 } from "../settings/reader-workspace-state-store";
 
 export const READER_EMBED_RATIO = DEFAULT_READER_RATIO;
+const NATIVE_FORM_READER_RATIO = 0.38;
 
 export function readerEmbedWidth(viewportWidth: number, readerRatio = READER_EMBED_RATIO): number {
   return Math.round(Math.max(0, viewportWidth) * normalizeReaderRatio(readerRatio));
@@ -41,6 +43,7 @@ export class ReaderWorkspace {
   readonly divider: HTMLDivElement;
   readonly mount: HTMLDivElement;
   readonly #style: HTMLStyleElement;
+  readonly #syncHostPageLayout: () => void;
 
   constructor(
     readonly document: Document,
@@ -61,6 +64,9 @@ export class ReaderWorkspace {
     const hadWorkspaceClass = html.classList.contains("hnr-reader-embedded-right");
     let currentRatio = normalizeReaderRatio(options.readerRatio);
     let committedRatio = currentRatio;
+    let visibleRatio = currentRatio;
+    let hostOperation = html.getAttribute("op");
+    let automaticFormLayout = hostOperation === "reply" || hostOperation === "submit";
     html.classList.add("hnr-reader-embedded-right");
     ownStyle(styleRestorers, html, "--hnr-reader-workspace-width", percentage(currentRatio));
     ownStyle(styleRestorers, html, "--hnr-host-workspace-width", percentage(1 - currentRatio));
@@ -255,26 +261,47 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     this.root.append(this.divider, this.mount);
     html.append(this.root);
 
-    const applyRatio = (nextRatio: number): void => {
-      currentRatio = normalizeReaderRatio(nextRatio);
-      const readerWidth = percentage(currentRatio);
-      const hostWidth = percentage(1 - currentRatio);
+    const applyRatio = (nextRatio: number, preservePreferredRatio = false): void => {
+      const normalizedRatio = normalizeReaderRatio(nextRatio);
+      visibleRatio = automaticFormLayout
+        ? Math.min(normalizedRatio, NATIVE_FORM_READER_RATIO)
+        : normalizedRatio;
+      if (!preservePreferredRatio) currentRatio = visibleRatio;
+      const readerWidth = percentage(visibleRatio);
+      const hostWidth = percentage(1 - visibleRatio);
       html.style.setProperty("--hnr-reader-workspace-width", readerWidth, "important");
       html.style.setProperty("--hnr-host-workspace-width", hostWidth, "important");
       body.style.setProperty("width", hostWidth, "important");
       body.style.setProperty("max-width", hostWidth, "important");
       this.root.style.setProperty("width", readerWidth, "important");
       this.divider.setAttribute("aria-valuemin", "32");
-      this.divider.setAttribute("aria-valuemax", "75");
-      this.divider.setAttribute("aria-valuenow", String(Math.round(currentRatio * 100)));
-      this.divider.setAttribute("aria-valuetext", `阅读器 ${Math.round(currentRatio * 100)}%，宿主 ${Math.round((1 - currentRatio) * 100)}%`);
+      this.divider.setAttribute("aria-valuemax", String(MAX_READER_RATIO * 100));
+      this.divider.setAttribute("aria-valuenow", String(Math.round(visibleRatio * 100)));
+      this.divider.setAttribute("aria-valuetext", `阅读器 ${Math.round(visibleRatio * 100)}%，宿主 ${Math.round((1 - visibleRatio) * 100)}%`);
     };
     const commitRatio = (): void => {
       if (Math.abs(currentRatio - committedRatio) < 0.0001) return;
       committedRatio = currentRatio;
       options.onReaderRatioChange?.(currentRatio);
     };
-    applyRatio(currentRatio);
+    this.#syncHostPageLayout = () => {
+      const nextOperation = html.getAttribute("op");
+      if (nextOperation !== hostOperation) {
+        hostOperation = nextOperation;
+        automaticFormLayout = hostOperation === "reply" || hostOperation === "submit";
+      }
+      applyRatio(currentRatio, true);
+    };
+    applyRatio(currentRatio, true);
+
+    if (topbar && typeof ResizeObserver === "function") {
+      const topbarObserver = new ResizeObserver(() => {
+        const height = Math.ceil(topbar.getBoundingClientRect().height);
+        if (height > 0) html.style.setProperty("--hnr-host-topbar-height", `${height}px`, "important");
+      });
+      topbarObserver.observe(topbar);
+      this.scope.add(() => topbarObserver.disconnect());
+    }
 
     let activePointerId: number | null = null;
     const pointerId = (event: Event): number => (event as PointerEvent).pointerId ?? 0;
@@ -294,6 +321,7 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     };
     this.scope.listen(this.divider, "pointerdown", (event) => {
       if (event instanceof MouseEvent && event.button !== 0) return;
+      automaticFormLayout = false;
       activePointerId = pointerId(event);
       html.classList.add("hnr-reader-resizing");
       updateFromPointer(event);
@@ -305,8 +333,9 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     }
     this.scope.listen(this.divider, "keydown", (event) => {
       if (!(event instanceof KeyboardEvent) || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+      automaticFormLayout = false;
       const direction = event.key === "ArrowLeft" ? 1 : -1;
-      applyRatio(currentRatio + direction * (event.shiftKey ? 0.05 : 0.02));
+      applyRatio(visibleRatio + direction * (event.shiftKey ? 0.05 : 0.02));
       commitRatio();
       event.preventDefault();
     });
@@ -328,6 +357,10 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     loading.setAttribute("role", "status");
     loading.textContent = message;
     this.mount.replaceChildren(loading);
+  }
+
+  syncHostPageLayout(): void {
+    if (!this.scope.destroyed) this.#syncHostPageLayout();
   }
 
   destroy(): void {
