@@ -2,7 +2,7 @@
 // @name         Hacker News Reader Lite
 // @name:zh-CN   Hacker News Reader Lite
 // @namespace    https://github.com/sunbigfly/hacker-news-reader-lite
-// @version      0.1.0
+// @version      0.1.1
 // @description  Fast Reddit-style Hacker News comments with translation, AI summaries and offline reading.
 // @description:zh-CN  为 Hacker News 提供 Reddit 式评论树、翻译、AI 总结与离线阅读。
 // @author       sunbigfly

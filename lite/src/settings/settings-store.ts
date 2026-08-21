@@ -79,7 +79,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = Object.freeze({
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
     model: "gpt-4.1-mini",
-    prompt: "保留事实、语气、代码、链接和占位符，不添加解释。",
+    prompt: "将用户提供的 Hacker News 英文内容翻译成自然、准确的中文；忠实保留原文事实、观点、语气、讽刺、幽默和讨论气质，不增删、不解释；表达符合中文技术社区习惯，避免生硬直译和过度书面化；俚语、俗语、梗语自然本地化，但保持原意和语气准确；技术术语使用通用译法，无可靠译法时保留英文；代码、命令、URL、Markdown、变量名、文件名、API、占位符等原样保留；保持原有格式；只输出译文，不添加说明、摘要、注释或前导语。",
     requestsPerMinute: 0,
     tokensPerMinute: 0,
   }),
