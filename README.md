@@ -7,7 +7,7 @@
 
 在 Hacker News 原生页面内提供 Reddit 式评论树、按需翻译、AI 讨论总结与离线阅读，同时保留 HN 的速度、顺序和原生交互。
 
-[![Version](https://img.shields.io/badge/version-0.1.3-f97316?style=flat-square)](https://github.com/sunbigfly/hacker-news-reader-lite/releases)
+[![Version](https://img.shields.io/badge/version-0.1.4-f97316?style=flat-square)](https://github.com/sunbigfly/hacker-news-reader-lite/releases)
 [![Greasy Fork](https://img.shields.io/greasyfork/v/591844?style=flat-square&label=Greasy%20Fork&color=f97316)](https://greasyfork.org/scripts/591844-hacker-news-reader-lite)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Target](https://img.shields.io/badge/target-news.ycombinator.com-111827?style=flat-square)](https://news.ycombinator.com/)

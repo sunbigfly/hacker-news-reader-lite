@@ -28,7 +28,10 @@ describe("ReaderWorkspace", () => {
     expect(workspace.root.dataset.layout).toBe("compact");
     expect(workspace.root.style.width).toBe("100%");
     expect(workspace.root.getAttribute("aria-modal")).toBe("true");
-    expect(document.body.hasAttribute("inert")).toBe(true);
+    expect(document.body.hasAttribute("inert")).toBe(false);
+    expect(center?.hasAttribute("inert")).toBe(true);
+    expect(workspace.root.parentElement).toBe(document.body);
+    expect(workspace.root.closest("[inert]")).toBeNull();
     expect(workspace.divider.hidden).toBe(true);
     workspace.divider.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
     expect(onReaderRatioChange).not.toHaveBeenCalled();
@@ -36,6 +39,7 @@ describe("ReaderWorkspace", () => {
     scope.destroy();
     expect(document.body.style.width).toBe("85%");
     expect(document.body.hasAttribute("inert")).toBe(false);
+    expect(center?.hasAttribute("inert")).toBe(false);
     expect(center?.scrollTop).toBe(256);
     expect(document.querySelector(".hnr-workspace-return")).toBeNull();
   });
@@ -78,7 +82,8 @@ describe("ReaderWorkspace", () => {
     expect(returnButton?.hidden).toBe(false);
     returnButton?.click();
     expect(workspace.root.style.display).toBe("block");
-    expect(document.body.hasAttribute("inert")).toBe(true);
+    expect(document.body.hasAttribute("inert")).toBe(false);
+    expect(document.querySelector("body > center")?.hasAttribute("inert")).toBe(true);
     expect(workspace.mount.textContent).toBe("保留当前讨论");
     expect(returnButton?.hidden).toBe(true);
     workspace.syncHostPageLayout();
@@ -137,7 +142,7 @@ describe("ReaderWorkspace", () => {
     expect(hnMain?.style.getPropertyValue("min-width")).toBe("0");
     expect(workspace.root.style.getPropertyValue("width")).toBe("52%");
     expect(workspace.root.style.getPropertyPriority("width")).toBe("important");
-    expect(workspace.root.parentElement).toBe(document.documentElement);
+    expect(workspace.root.parentElement).toBe(document.body);
     expect(document.querySelector("#hn-reader-workspace")).toBe(workspace.root);
     expect(workspace.divider.getAttribute("role")).toBe("separator");
     const workspaceStyle = document.querySelector("[data-hnr-workspace-style]")?.textContent;

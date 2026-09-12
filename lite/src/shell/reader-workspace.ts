@@ -64,7 +64,7 @@ export class ReaderWorkspace {
     const pageWindow = document.defaultView;
     const compactQuery = pageWindow?.matchMedia?.(`(max-width: ${READER_COMPACT_MAX_WIDTH}px)`);
     let compact = compactQuery?.matches ?? (pageWindow?.innerWidth ?? 1024) <= READER_COMPACT_MAX_WIDTH;
-    const previousInert = body.getAttribute("inert");
+    const hostInertStates = new Map<Element, string | null>();
     let showReaderOverForm = false;
     const initialScrollY = pageWindow?.scrollY ?? 0;
     const styleRestorers: Array<() => void> = [];
@@ -283,17 +283,31 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     this.mount = document.createElement("div");
     this.mount.className = "hnr-workspace-mount";
     this.root.append(this.divider, this.mount);
-    html.append(this.root);
+    // Keep the interactive surface in the body event path on mobile WebViews.
+    // An already inert host belongs to its caller; do not inherit or clear it.
+    const surfaceParent = body.hasAttribute("inert") ? html : body;
+    surfaceParent.append(this.root);
 
     const returnToReader = document.createElement("button");
     returnToReader.type = "button";
     returnToReader.className = "hnr-workspace-return";
     returnToReader.textContent = "返回阅读";
     returnToReader.hidden = true;
-    html.append(returnToReader);
+    surfaceParent.append(returnToReader);
     const restoreHostInert = (): void => {
-      if (previousInert === null) body.removeAttribute("inert");
-      else body.setAttribute("inert", previousInert);
+      for (const [element, previous] of hostInertStates) {
+        if (previous === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", previous);
+      }
+      hostInertStates.clear();
+    };
+    const isolateHost = (): void => {
+      // Never disable the document body: it also hosts the reader and its forms.
+      for (const element of body.children) {
+        if (element === this.root || element === returnToReader || /^(SCRIPT|STYLE|LINK|META)$/.test(element.tagName)) continue;
+        if (!hostInertStates.has(element)) hostInertStates.set(element, element.getAttribute("inert"));
+        if (!element.hasAttribute("inert")) element.setAttribute("inert", "");
+      }
     };
 
     const applyRatio = (nextRatio: number, preservePreferredRatio = false): void => {
@@ -317,7 +331,7 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
       else this.root.removeAttribute("aria-modal");
       this.divider.hidden = compact;
       returnToReader.hidden = !showHost;
-      if (compact && !showHost) body.setAttribute("inert", "");
+      if (compact && !showHost) isolateHost();
       else restoreHostInert();
       this.divider.setAttribute("aria-valuemin", "32");
       this.divider.setAttribute("aria-valuemax", String(MAX_READER_RATIO * 100));

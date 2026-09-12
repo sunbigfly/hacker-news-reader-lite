@@ -7,10 +7,55 @@ import { parseHnDocument } from "../src/host/hn-dom-adapter";
 import { LifecycleScope } from "../src/kernel/lifecycle";
 import { DEFAULT_SETTINGS } from "../src/settings/settings-store";
 import { ReaderView } from "../src/shell/reader-view";
+import { ReaderWorkspace } from "../src/shell/reader-workspace";
 import { CommentProjection } from "../src/thread/comment-projection";
 import { CommentTree } from "../src/thread/comment-tree";
 
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it("keeps mobile settings touch targets inside the body and outside background inert subtrees", async () => {
+  document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+  vi.stubGlobal("matchMedia", () => Object.assign(new EventTarget(), { matches: true }));
+  const snapshot = parseHnDocument(document);
+  const scope = new LifecycleScope();
+  const workspace = new ReaderWorkspace(document, scope);
+  const tree = new CommentTree(snapshot.story, snapshot.comments);
+  const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+    onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(),
+    onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+  }, scope, "", workspace.mount);
+  try {
+    view.openSettings(DEFAULT_SETTINGS, {
+      onSave: vi.fn(), onLoadModels: vi.fn().mockResolvedValue([]),
+      onClearCache: vi.fn().mockResolvedValue(undefined), onReset: vi.fn(),
+    });
+    await Promise.resolve();
+    const button = view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-settings-panel-select.hnr-select-trigger");
+    const input = view.surfaceRoot.querySelector<HTMLInputElement>('input[name="replyCollapseThreshold"]');
+    if (!button || !input) throw new Error("Settings controls missing");
+    let touchPath: EventTarget[] = [];
+    scope.listen(document.body, "touchstart", (event) => { touchPath = event.composedPath(); });
+    const touch = new Event("touchstart", { bubbles: true, composed: true, cancelable: true });
+    button.dispatchEvent(touch);
+    expect(touch.defaultPrevented).toBe(false);
+    expect(touchPath).toContain(button);
+    expect(touchPath).toContain(document.body);
+    expect(touchPath.some((node) => node instanceof Element && node.hasAttribute("inert"))).toBe(false);
+    expect(document.querySelector("body > .fatitem")?.hasAttribute("inert")).toBe(true);
+    button.click();
+    expect(view.surfaceRoot.querySelector(".hnr-select-menu")).not.toBeNull();
+    input.focus();
+    input.value = "15";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(view.surfaceRoot.activeElement).toBe(input);
+    expect(input.closest("[inert]")).toBeNull();
+    const cancel = view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-settings-cancel");
+    if (!cancel) throw new Error("Cancel missing");
+    cancel.click();
+    expect(view.surfaceRoot.querySelector(".hnr-settings-backdrop")).toBeNull();
+  } finally { scope.destroy(); }
+  expect(document.querySelector("body > .fatitem")?.hasAttribute("inert")).toBe(false);
+});
 
 it("keeps settings input focused and buffers background comment rendering until dismissal", async () => {
   vi.useFakeTimers();
