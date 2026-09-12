@@ -166,6 +166,8 @@ class ReaderSession {
   #translationPrefetchTimer: number | null = null;
   #queuedTranslationPrefetchIds: readonly CommentId[] = Object.freeze([]);
   readonly #prefetchRequested = new Set<CommentId>();
+  readonly #loadingReplies = new Set<CommentId>();
+  #replyLoadController: AbortController | null = null;
   readonly #openedAtSecond = Math.floor(Date.now() / 1_000) * 1_000;
   readonly #announcedNewCommentIds = new Set<CommentId>();
   readonly #realtimeChangedParentIds = new Set<number>();
@@ -223,10 +225,11 @@ class ReaderSession {
     this.summaries = new SummaryService(this.summaryCache, new ManagedAiCompletionClient(this.ai, this.translationRuntime.tasks));
     this.tree = new CommentTree(snapshot.story, snapshot.comments);
     this.onStoryTitleChange(this.tree.story.title);
-    this.projection = new CommentProjection(this.tree);
-    this.projection.restoreCollapsed(initialTopicState?.collapsedCommentIds ?? []);
-    this.preheater = new ThreadPreheater(document);
     this.#settings = this.settingsStore.load();
+    this.projection = new CommentProjection(this.tree, this.#settings);
+    this.projection.restoreCollapsed(initialTopicState?.collapsedCommentIds ?? []);
+    this.projection.restoreReplyWindows(initialTopicState?.replyWindows ?? []);
+    this.preheater = new ThreadPreheater(document);
     this.#complete = snapshot.complete;
     this.#pendingTopicPosition = initialTopicState?.position ?? null;
     this.view = new ReaderView(
@@ -249,7 +252,16 @@ class ReaderSession {
           this.projection.toggle(id);
           this.view.update(this.tree, this.projection, this.#complete);
         },
-        onLoadMissing: () => { void this.refresh(); },
+        onReplyAction: (id, action) => {
+          if (action === "expand") this.projection.expandReplies(id);
+          else this.projection.collapseReplies(id);
+          this.view.update(this.tree, this.projection, this.#complete);
+          if (action === "expand") {
+            const missing = this.projection.entries().filter((entry) => entry.kind === "missing" && entry.parentId === id);
+            void this.#loadReplyItems(missing.map((entry) => entry.id));
+          }
+        },
+        onLoadMissing: (id) => { void this.#loadReplyItems([id]); },
       },
       this.scope,
       css,
@@ -286,6 +298,8 @@ class ReaderSession {
       this.#offlineTranslationController = null;
       this.#titleTranslationController?.abort(new Error("Reader 已关闭"));
       this.#titleTranslationController = null;
+      this.#loadingReplies.clear();
+      this.#replyLoadController = null;
       this.#realtimeChangedParentIds.clear();
       this.#realtimeAbortController = null;
     });
@@ -504,6 +518,7 @@ class ReaderSession {
       schemaVersion: 1,
       position: this.view.captureTopicPosition(),
       collapsedCommentIds: this.projection.collapsedIds(),
+      replyWindows: this.projection.replyWindows(),
       storyTitle: this.tree.story.title,
       visitedAt: Date.now(),
     });
@@ -696,12 +711,43 @@ class ReaderSession {
     }
   }
 
+  async #loadReplyItems(ids: readonly CommentId[]): Promise<void> {
+    if (this.scope.destroyed || ids.length === 0) return;
+    this.#replyLoadController ??= this.scope.abortController(new Error("Reader 已关闭"));
+    const signal = this.#replyLoadController.signal;
+    const entries = this.projection.entries();
+    await Promise.all(ids.map(async (id) => {
+      if (this.tree.has(id) || this.#loadingReplies.has(id)) return;
+      const entry = entries.find((candidate) => candidate.kind === "missing" && candidate.id === id);
+      if (!entry || entry.kind !== "missing") return;
+      this.#loadingReplies.add(id);
+      try {
+        const item = await this.api.getItem(id, signal);
+        if (signal.aborted || this.tree.has(id)) return;
+        if (!item || item.type !== "comment" || item.parent !== entry.parentId) throw new Error("回复暂时不可用，请点击重试。");
+        const parent = entry.parentId === this.tree.story.id ? this.tree.story : this.tree.get(entry.parentId as CommentId);
+        const rank = parent?.childIds.indexOf(id) ?? -1;
+        if (rank < 0) return;
+        this.tree.ingest([this.api.toComment(item, this.tree.story.id, entry.parentId, rank, this.document)]);
+      } catch (error) {
+        if (!signal.aborted) this.view.setStatus(error instanceof Error ? error.message : "回复加载失败，请点击重试。", "error");
+      } finally {
+        this.#loadingReplies.delete(id);
+      }
+    }));
+    if (signal.aborted) return;
+    this.view.update(this.tree, this.projection, this.#complete);
+    this.#startPreheat("refreshed");
+  }
+
   openSettings(): void {
     this.view.openSettings(this.#settings, {
       onSave: (settings) => {
         const wasTranslationEnabled = this.#settings.translationEnabled;
         this.settingsStore.save(settings);
         this.#settings = settings;
+        this.projection.configure(settings);
+        this.view.update(this.tree, this.projection, this.#complete);
         this.view.applySettings(settings);
         this.onThemeChange(settings.theme);
         this.onSettingsChange(settings);
@@ -731,6 +777,8 @@ class ReaderSession {
       onReset: () => {
         this.settingsStore.reset();
         this.#settings = DEFAULT_SETTINGS;
+        this.projection.configure(this.#settings);
+        this.view.update(this.tree, this.projection, this.#complete);
         this.view.applySettings(this.#settings);
         this.onThemeChange(this.#settings.theme);
         this.onSettingsChange(this.#settings);
@@ -1260,6 +1308,7 @@ export class ReaderController {
   }
 
   async open(storyId: StoryId, commentId?: CommentId): Promise<void> {
+    this.#workspace?.showReader();
     this.#itemResolutionController?.abort(new Error("已直接打开另一篇讨论"));
     this.#itemResolutionController = null;
     this.#pendingCommentTarget = commentId === undefined ? null : { storyId, commentId };

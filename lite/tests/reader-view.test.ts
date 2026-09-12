@@ -247,6 +247,44 @@ describe("ReaderView", () => {
     }
   });
 
+  it("toggles tools by touch, keeps close reachable, and dismisses tools before exiting the reader", () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const onClose = vi.fn();
+    const onCommand = vi.fn();
+    const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+      onClose, onCommand, onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(),
+      onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    const header = view.surfaceRoot.querySelector<HTMLElement>(".hnr-header-actions");
+    const toggle = view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-actions-toggle");
+    const content = view.surfaceRoot.querySelector<HTMLElement>(".hnr-actions-content");
+    const close = view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-close");
+    expect(content?.hasAttribute("inert")).toBe(true);
+    expect(close?.parentElement).toBe(header);
+    header?.dispatchEvent(Object.assign(new Event("pointerenter"), { pointerType: "touch" }));
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    toggle?.click();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(content?.hasAttribute("inert")).toBe(false);
+    header?.dispatchEvent(Object.assign(new Event("pointerleave"), { pointerType: "touch" }));
+    view.surfaceRoot.querySelector<HTMLButtonElement>('[data-command="settings"]')?.click();
+    expect(onCommand).toHaveBeenCalledWith("settings");
+    toggle?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(content?.hasAttribute("inert")).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    toggle?.click();
+    view.surfaceRoot.querySelector(".hnr-comment-body")?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    close?.click();
+    expect(onClose).toHaveBeenCalledOnce();
+    view.destroy();
+    scope.destroy();
+  });
+
   it("opens an accessible summary window with factual visualization and story history", async () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document);
@@ -437,7 +475,7 @@ describe("ReaderView", () => {
     const rootScope = new LifecycleScope();
     for (let cycle = 0; cycle < 20; cycle += 1) {
       const tree = new CommentTree(snapshot.story, snapshot.comments);
-      const projection = new CommentProjection(tree);
+      const projection = new CommentProjection(tree, { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" });
       const onCommentAction = vi.fn();
       const view = new ReaderView(document, tree, projection, true, {
         onClose: vi.fn(),
@@ -468,9 +506,9 @@ describe("ReaderView", () => {
           && button.getAttribute("aria-describedby") === tooltip.id;
       })).toBe(true);
       const headerActions = view.surfaceRoot.querySelector<HTMLElement>(".hnr-header-actions");
-      expect([...headerActions?.children ?? []].map((element) => element.className)).toEqual(["hnr-actions-toggle", "hnr-actions-content"]);
-      expect(headerActions?.querySelector(".hnr-actions-toggle")?.getAttribute("aria-hidden")).toBe("true");
-      expect(headerActions?.querySelectorAll(".hnr-actions-content > :is(.hnr-commands, .hnr-original-control, .hnr-close)")).toHaveLength(3);
+      expect([...headerActions?.children ?? []].map((element) => element.className)).toEqual(["hnr-actions-toggle", "hnr-actions-content", "hnr-close"]);
+      expect(headerActions?.querySelector(".hnr-actions-toggle")?.getAttribute("aria-expanded")).toBe("false");
+      expect(headerActions?.querySelectorAll(".hnr-actions-content > :is(.hnr-commands, .hnr-original-control)")).toHaveLength(2);
       expect(view.surfaceRoot.querySelector<HTMLButtonElement>(".hnr-close")?.getAttribute("aria-label")).toBe("退出阅读");
       expect(view.surfaceRoot.querySelector(".hnr-meta")).toBeNull();
       expect(view.surfaceRoot.querySelector(".hnr-header > .hnr-coverage")?.textContent).toContain("条评论");
@@ -593,7 +631,7 @@ describe("ReaderView", () => {
     const snapshot = parseHnDocument(document);
     const scope = new LifecycleScope();
     const tree = new CommentTree(snapshot.story, snapshot.comments);
-    const projection = new CommentProjection(tree);
+    const projection = new CommentProjection(tree, { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" });
     const onToggleComment = vi.fn();
     const view = new ReaderView(document, tree, projection, true, {
       onClose: vi.fn(),
@@ -710,7 +748,7 @@ describe("ReaderView", () => {
     const snapshot = parseHnDocument(document);
     const scope = new LifecycleScope();
     const tree = new CommentTree(snapshot.story, snapshot.comments);
-    const projection = new CommentProjection(tree);
+    const projection = new CommentProjection(tree, { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" });
     const view = new ReaderView(document, tree, projection, true, {
       onClose: vi.fn(),
       onCommand: vi.fn(),
@@ -970,12 +1008,12 @@ describe("ReaderView", () => {
       throw new Error("font controls were not rendered");
     }
     expect([...view.surfaceRoot.querySelectorAll(".hnr-font-setting-row strong")].map((element) => element.textContent)).toEqual([
-      "字体显示优化",
       "标题字体",
       "正文字体",
       "字重",
       "字号",
       "行高",
+      "字体显示优化",
     ]);
     expect(scale.step).toBe("0.01");
     expect(host.dataset.fontRendering).toBe("builtin");
@@ -1038,6 +1076,56 @@ describe("ReaderView", () => {
     expect(host.dataset.fontRendering).toBe("builtin");
     expect(onSave).not.toHaveBeenCalled();
     scope.destroy();
+  });
+
+  it("switches compact settings categories without losing drafts or marking navigation as an edit", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    const scope = new LifecycleScope();
+    try {
+      document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+      const snapshot = parseHnDocument(document);
+      const tree = new CommentTree(snapshot.story, snapshot.comments);
+      const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+        onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(),
+        onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+      }, scope, "", document.body);
+      const onSave = vi.fn();
+      const queryLocalFonts = vi.fn(() => Promise.resolve(["Arial"]));
+      view.openSettings(DEFAULT_SETTINGS, {
+        onSave, onLoadModels: () => Promise.resolve([]), onClearCache: () => Promise.resolve(),
+        onReset: vi.fn(), queryLocalFonts,
+      });
+      await Promise.resolve();
+      const form = view.surfaceRoot.querySelector<HTMLFormElement>(".hnr-settings");
+      const picker = view.surfaceRoot.querySelector<HTMLSelectElement>(".hnr-settings-panel-select");
+      const scale = view.surfaceRoot.querySelector<HTMLInputElement>('input[name="fontScale"]');
+      const status = view.surfaceRoot.querySelector(".hnr-settings-status");
+      if (!form || !picker || !scale || !status) throw new Error("Compact settings controls were not rendered");
+      expect(view.surfaceRoot.activeElement).toBe(picker);
+      expect(picker.options).toHaveLength(4);
+      const initialStatus = status.textContent;
+      const switchPanel = (value: string): void => {
+        picker.value = value;
+        picker.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      switchPanel("font");
+      expect(view.surfaceRoot.querySelector<HTMLElement>('#hnr-settings-panel-font')?.hidden).toBe(false);
+      expect(status.textContent).toBe(initialStatus);
+      scale.value = "1.1";
+      scale.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(status.textContent).toBe("有未保存的更改。");
+      switchPanel("reading");
+      switchPanel("font");
+      expect(scale.value).toBe("1.1");
+      expect(view.surfaceRoot.querySelector(".hnr-font-range-value")?.textContent).toBe("110%");
+      await vi.waitFor(() => expect(queryLocalFonts).toHaveBeenCalledOnce());
+      expect(onSave).not.toHaveBeenCalled();
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ fontScale: 1.1 }));
+    } finally {
+      scope.destroy();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("closes settings with Escape or a backdrop click without treating panel clicks as dismissal", () => {

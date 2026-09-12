@@ -77,7 +77,8 @@ describe("ReaderController workspace continuity", () => {
   it("jumps a long deep comment header to the viewport start after the complete tree replaces the first screen", async () => {
     document.documentElement.innerHTML = `<head><base href="https://news.ycombinator.com/newcomments"></head><body><table></table></body>`;
     vi.stubGlobal("indexedDB", indexedDB);
-    vi.stubGlobal("GM_getValue", (_key: string, fallback: unknown) => fallback);
+    vi.stubGlobal("GM_getValue", (key: string, fallback: unknown) => key === "hn-reader:settings:v1"
+      ? { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" } : fallback);
     vi.stubGlobal("GM_setValue", vi.fn());
     const fetchPage = vi.fn(() => Promise.resolve(new Response(deepTranslationThreadHtml(330), { status: 200 })));
     const getBoundingClientRect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function getRect(this: HTMLElement) {

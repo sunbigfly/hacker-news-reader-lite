@@ -14,6 +14,7 @@ import type { CommentTree } from "../thread/comment-tree";
 import type { CommentId } from "../thread/model";
 import type { PreheatedComment } from "../thread/thread-preheater";
 import { VirtualCommentList } from "../stream/virtual-comment-list";
+import { READER_COMPACT_MAX_WIDTH } from "./reader-workspace";
 import type {
   ReaderTopicHistoryEntry,
   ReaderTopicPosition,
@@ -105,6 +106,7 @@ export interface ReaderViewActions {
   readonly onCommentAction: (action: ReaderCommentAction, id: CommentId) => void;
   readonly onViewportCommentsChanged: (ids: readonly CommentId[]) => void;
   readonly onToggleComment: (id: CommentId) => void;
+  readonly onReplyAction?: (id: CommentId, action: "expand" | "collapse") => void;
   readonly onLoadMissing: (id: CommentId) => void;
 }
 
@@ -212,10 +214,15 @@ export class ReaderView {
     const headerActions = htmlElement(document, "div", "hnr-header-actions");
     headerActions.dataset.expanded = "false";
     let headerActionsCollapseTimer: number | null = null;
-    const headerActionsToggle = htmlElement(document, "span", "hnr-actions-toggle");
-    headerActionsToggle.setAttribute("aria-hidden", "true");
+    const headerActionsToggle = htmlElement(document, "button", "hnr-actions-toggle");
+    headerActionsToggle.type = "button";
+    headerActionsToggle.setAttribute("aria-label", "阅读工具");
+    headerActionsToggle.setAttribute("aria-expanded", "false");
+    headerActionsToggle.setAttribute("aria-controls", "hnr-header-tools");
     headerActionsToggle.append(iconElement(document, HEADER_ACTIONS_TOGGLE_ICON_PATHS));
     const headerActionsContent = htmlElement(document, "div", "hnr-actions-content");
+    headerActionsContent.id = "hnr-header-tools";
+    headerActionsContent.setAttribute("inert", "");
     const commands = htmlElement(document, "nav", "hnr-commands");
     commands.setAttribute("aria-label", "阅读工具");
     for (const [command, label, paths] of COMMAND_DEFINITIONS) {
@@ -243,8 +250,8 @@ export class ReaderView {
     const originalTooltip = tooltipElement(document, "回到原帖", "hnr-tooltip-original");
     original.setAttribute("aria-describedby", originalTooltip.id);
     original.append(iconElement(document, ORIGINAL_ICON_PATHS), originalTooltip);
-    headerActionsContent.append(commands, original, close);
-    headerActions.append(headerActionsToggle, headerActionsContent);
+    headerActionsContent.append(commands, original);
+    headerActions.append(headerActionsToggle, headerActionsContent, close);
     header.append(identity, this.#coverage, headerActions);
 
     this.#status = htmlElement(document, "div", "hnr-status");
@@ -342,7 +349,6 @@ export class ReaderView {
       },
     );
     this.#scope.listen(this.#shadow, "click", (event) => this.#handleClick(event));
-    this.#scope.listen(this.#shadow, "keydown", (event) => this.#handleKeydown(event as KeyboardEvent));
     const releaseLocatedCommentPin = (): void => this.#releaseLocatedCommentPin();
     this.#scope.listen(this.#commentViewport, "wheel", releaseLocatedCommentPin, { passive: true });
     this.#scope.listen(this.#commentViewport, "pointerdown", releaseLocatedCommentPin);
@@ -351,17 +357,46 @@ export class ReaderView {
       if (headerActionsCollapseTimer !== null) this.document.defaultView?.clearTimeout(headerActionsCollapseTimer);
       headerActionsCollapseTimer = null;
     };
-    this.#scope.listen(headerActions, "pointerenter", () => {
-      cancelHeaderActionsCollapse();
-      headerActions.dataset.expanded = "true";
+    const setHeaderActionsExpanded = (expanded: boolean): void => {
+      if (headerActions.dataset.expanded === String(expanded)) return;
+      headerActions.dataset.expanded = String(expanded);
+      headerActionsToggle.setAttribute("aria-expanded", String(expanded));
+      headerActionsContent.toggleAttribute("inert", !expanded);
       this.#scheduleHeaderTitleFit();
+    };
+    this.#scope.listen(headerActionsToggle, "click", () => {
+      cancelHeaderActionsCollapse();
+      setHeaderActionsExpanded(headerActions.dataset.expanded !== "true");
     });
-    this.#scope.listen(headerActions, "pointerleave", () => {
+    this.#scope.listen(this.#shadow, "pointerdown", (event) => {
+      if (!event.composedPath().includes(headerActions)) {
+        cancelHeaderActionsCollapse();
+        setHeaderActionsExpanded(false);
+      }
+    });
+    this.#scope.listen(this.#shadow, "keydown", (event) => {
+      const keyboardEvent = event as KeyboardEvent;
+      if (keyboardEvent.key === "Escape" && headerActions.dataset.expanded === "true") {
+        cancelHeaderActionsCollapse();
+        setHeaderActionsExpanded(false);
+        headerActionsToggle.focus();
+        keyboardEvent.preventDefault();
+        keyboardEvent.stopPropagation();
+        return;
+      }
+      this.#handleKeydown(keyboardEvent);
+    });
+    this.#scope.listen(headerActions, "pointerenter", (event) => {
+      if ((event as PointerEvent).pointerType && (event as PointerEvent).pointerType !== "mouse") return;
+      cancelHeaderActionsCollapse();
+      setHeaderActionsExpanded(true);
+    });
+    this.#scope.listen(headerActions, "pointerleave", (event) => {
+      if ((event as PointerEvent).pointerType && (event as PointerEvent).pointerType !== "mouse") return;
       cancelHeaderActionsCollapse();
       headerActionsCollapseTimer = this.document.defaultView?.setTimeout(() => {
-        headerActions.dataset.expanded = "false";
+        if (!headerActions.contains(this.#shadow.activeElement)) setHeaderActionsExpanded(false);
         headerActionsCollapseTimer = null;
-        this.#scheduleHeaderTitleFit();
       }, HEADER_ACTIONS_COLLAPSE_DELAY_MS) ?? null;
     });
     this.#scope.listen(headerActions, "focusin", () => this.#scheduleHeaderTitleFit());
@@ -427,6 +462,11 @@ export class ReaderView {
   }
 
   restoreTopicPosition(position: ReaderTopicPosition): boolean {
+    if (!this.#visibleEntries.some((entry) => entry.id === position.commentId) && this.#tree.has(position.commentId)) {
+      this.#projection.reveal(position.commentId);
+      this.#visibleEntries = this.#projection.entries();
+      this.#virtualList.setEntries(this.#visibleEntries);
+    }
     return this.#virtualList.restorePosition({ id: position.commentId, offset: position.offset });
   }
 
@@ -453,7 +493,7 @@ export class ReaderView {
     this.#visibleEntries = entries;
     this.#virtualList.setEntries(
       entries,
-      this.#preheated.size > 0 ? entries.map((entry) => this.#preheated.get(entry.id)?.estimatedHeight ?? 112) : undefined,
+      this.#preheated.size > 0 ? entries.map((entry) => entry.kind === "replies" ? 48 : this.#preheated.get(entry.id)?.estimatedHeight ?? 112) : undefined,
     );
   }
 
@@ -691,7 +731,7 @@ export class ReaderView {
   applyPreheat(values: ReadonlyMap<CommentId, PreheatedComment>): void {
     this.#preheated = new Map(values);
     const entries = this.#visibleEntries;
-    this.#virtualList.seedHeights(entries.map((entry) => this.#preheated.get(entry.id)?.estimatedHeight ?? 112));
+    this.#virtualList.seedHeights(entries.map((entry) => entry.kind === "replies" ? 48 : this.#preheated.get(entry.id)?.estimatedHeight ?? 112));
     this.#extendLocatedCommentPin();
   }
 
@@ -1395,7 +1435,7 @@ export class ReaderView {
         id: "reading",
         group: "阅读",
         title: "阅读与翻译",
-        description: "设置自动翻译、翻译服务和正文显示方式。",
+        description: "设置评论收纳、自动翻译和正文显示方式。",
         icon: ["M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z", "M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"],
       },
       {
@@ -1464,6 +1504,14 @@ export class ReaderView {
     const panelHosts = new Map<SettingsPanelId, HTMLElement>();
     const groups = new Map<string, HTMLElement>();
     let activePanel: SettingsPanelId = "reading";
+
+    const mobileHeader = htmlElement(this.document, "header", "hnr-settings-mobile-header");
+    const panelSelect = select("settingsPanel", activePanel as SettingsPanelId,
+      panelDefinitions.map(({ id, title }) => [id, title] as const));
+    panelSelect.removeAttribute("name");
+    panelSelect.className = "hnr-settings-panel-select";
+    panelSelect.setAttribute("aria-label", "设置分类");
+    mobileHeader.append(panelSelect);
 
     const sidebar = htmlElement(this.document, "aside", "hnr-settings-tabs");
     const brand = htmlElement(this.document, "div", "hnr-settings-brand");
@@ -1582,7 +1630,28 @@ export class ReaderView {
       field("滚动预翻译", select("translationEnabled", settings.translationEnabled ? "on" : "off", [["on", "开启（持久化）"], ["off", "关闭"]])),
       translationThemeField,
     );
-    panelHosts.get("reading")?.append(readingGroup);
+    const commentMode = select("commentDisplayMode", settings.commentDisplayMode, [
+      ["smart", "智能收纳"], ["expanded", "全部展开"], ["roots", "仅主评论"],
+    ]);
+    const replyThreshold = numberInput("replyCollapseThreshold", settings.replyCollapseThreshold, 1, 500, 1);
+    const expandDepth = numberInput("commentExpandDepth", settings.commentExpandDepth, 1, 10, 1);
+    const replyPageSize = numberInput("replyPageSize", settings.replyPageSize, 5, 100, 1);
+    const replyGroup = htmlElement(this.document, "fieldset", "hnr-settings-card hnr-reply-settings");
+    replyGroup.append(
+      htmlElement(this.document, "legend", "", "评论收纳"),
+      field("默认显示", commentMode),
+      field("回复超过多少条时收起", replyThreshold),
+      field("默认展开层数", expandDepth),
+      field("每次展开的直接回复数", replyPageSize),
+      htmlElement(this.document, "p", "hnr-settings-description", "收起回复时保留父评论正文。主评论算第 1 层；手动展开与收起会被记住，优先于默认规则。"),
+    );
+    const syncReplyControls = (): void => {
+      replyThreshold.disabled = commentMode.value !== "smart";
+      expandDepth.disabled = commentMode.value !== "smart";
+    };
+    commentMode.addEventListener("change", syncReplyControls);
+    syncReplyControls();
+    panelHosts.get("reading")?.append(replyGroup, readingGroup);
 
     const aiBaseUrl = textInput("aiBaseUrl", settings.ai.baseUrl);
     const aiApiKey = textInput("aiApiKey", settings.ai.apiKey, "password");
@@ -1678,21 +1747,25 @@ export class ReaderView {
     lineHeightControl.append(lineHeight, lineHeightValue);
     const fontPreview = htmlElement(this.document, "div", "hnr-font-preview");
     fontPreview.append(
+      htmlElement(this.document, "span", "hnr-font-preview-label", "实时预览"),
       htmlElement(this.document, "strong", "hnr-font-title-preview", "Hacker News 标题字体预览"),
       htmlElement(this.document, "span", "hnr-font-body-preview", "评论正文预览：春江潮水连海平。The quick brown fox jumps over 0123456789."),
     );
     const fontSettings = htmlElement(this.document, "fieldset", "hnr-settings-card hnr-font-settings");
     fontSettings.append(
-      htmlElement(this.document, "legend", "", "阅读排版"),
-      fontRow("字体显示优化", "在 Reader 中启用内置字体平滑、描边和阴影优化。", renderingControl),
-      fontRow("标题字体", "用于 Reader 顶部故事标题与中文译题。", titleFontPicker.element),
-      fontRow("正文字体", "自动读取浏览器可用字体；支持搜索、选择和即时预览。", bodyFontPicker.element),
-      fontRow("字重", "仅影响评论正文。", weightControl),
+      htmlElement(this.document, "legend", "", "字体"),
+      fontRow("标题字体", "故事标题与中文译题", titleFontPicker.element),
+      fontRow("正文字体", "选择适合长文阅读的字体", bodyFontPicker.element),
+      fontRow("字重", "调整评论文字的轻重", weightControl),
+    );
+    const fontLayout = htmlElement(this.document, "fieldset", "hnr-settings-card hnr-font-settings");
+    fontLayout.append(
+      htmlElement(this.document, "legend", "", "字号与行距"),
       fontRow("字号", "85% – 135%", scaleControl),
       fontRow("行高", "1.35 – 2.00", lineHeightControl),
-      fontPreview,
+      fontRow("字体显示优化", "改善屏幕上的文字清晰度", renderingControl),
     );
-    panelHosts.get("font")?.append(fontSettings);
+    panelHosts.get("font")?.append(fontPreview, fontSettings, fontLayout);
 
     const storageCard = htmlElement(this.document, "section", "hnr-settings-card hnr-storage-settings");
     const storageCopy = htmlElement(this.document, "div", "hnr-storage-copy");
@@ -1725,7 +1798,7 @@ export class ReaderView {
     close.type = "button";
     close.setAttribute("aria-label", "关闭设置");
     close.append(iconElement(this.document, ["M6 6l12 12", "M18 6 6 18"]));
-    form.append(sidebar, settingsPanel, close);
+    form.append(mobileHeader, sidebar, settingsPanel, close);
     backdrop.append(form);
     this.#shell.append(backdrop);
     this.#settingsSurfaceCleanup = () => {
@@ -1741,6 +1814,8 @@ export class ReaderView {
     };
     const activatePanel = (panelId: SettingsPanelId): void => {
       activePanel = panelId;
+      panelSelect.value = panelId;
+      panelSelect.setAttribute("aria-controls", `hnr-settings-panel-${panelId}`);
       if (panelId === "font") {
         titleFontPicker.activate();
         bodyFontPicker.activate();
@@ -1795,6 +1870,13 @@ export class ReaderView {
       }
     };
     search.addEventListener("input", syncSearch);
+    panelSelect.addEventListener("change", () => {
+      const panel = panelDefinitions.find(({ id }) => id === panelSelect.value);
+      if (!panel) return;
+      search.value = "";
+      syncSearch();
+      activatePanel(panel.id);
+    });
     searchClear.addEventListener("click", () => {
       search.value = "";
       syncSearch();
@@ -1850,6 +1932,10 @@ export class ReaderView {
       });
       fontScaleValue.value = `${Math.round(preview.fontScale * 100)}%`;
       lineHeightValue.value = preview.lineHeight.toFixed(2);
+      for (const [control, value] of [[fontScale, preview.fontScale], [lineHeight, preview.lineHeight]] as const) {
+        const progress = (value - Number(control.min)) / (Number(control.max) - Number(control.min));
+        control.style.setProperty("--hnr-range-progress", `${Math.round(progress * 100)}%`);
+      }
       this.applySettings(preview);
       callbacks.onThemePreview?.(preview.theme);
       callbacks.onSettingsPreview?.(preview);
@@ -1914,6 +2000,10 @@ export class ReaderView {
       try {
         const next = normalizeSettings({
           ...settings,
+          commentDisplayMode: commentMode.value,
+          replyCollapseThreshold: replyThreshold.value,
+          commentExpandDepth: expandDepth.value,
+          replyPageSize: replyPageSize.value,
           translationProvider: data.get("provider"),
           translationMode: data.get("mode"),
           translationTheme: data.get("translationTheme"),
@@ -1947,11 +2037,17 @@ export class ReaderView {
     });
     for (const eventName of ["input", "change"]) {
       form.addEventListener(eventName, (event) => {
-        if (event.target === search) return;
+        if (event.target === search || event.target === panelSelect) return;
         setStatus("有未保存的更改。");
       });
     }
-    queueMicrotask(() => tabs.get(activePanel)?.focus());
+    queueMicrotask(() => {
+      if (!form.isConnected) return;
+      const pageWindow = this.document.defaultView;
+      const compact = pageWindow?.matchMedia?.(`(max-width: ${READER_COMPACT_MAX_WIDTH}px)`).matches
+        ?? (pageWindow?.innerWidth ?? 1024) <= READER_COMPACT_MAX_WIDTH;
+      (compact ? panelSelect : tabs.get(activePanel))?.focus();
+    });
   }
 
   destroy(): void {
@@ -1987,11 +2083,40 @@ export class ReaderView {
   }
 
   #renderEntry(entry: VisibleEntry, index: number): HTMLElement {
+    if (entry.kind === "replies") {
+      const row = htmlElement(this.document, "div", "hnr-replies");
+      row.setAttribute("role", "treeitem");
+      row.setAttribute("aria-level", String(entry.depth + 1));
+      row.style.setProperty("--hnr-depth", String(entry.depth));
+      const rails = htmlElement(this.document, "span", "hnr-tree-rails");
+      rails.setAttribute("aria-hidden", "true");
+      const ancestors = this.#ancestorsFor(entry);
+      const nextEntry = this.#visibleEntries[index + 1];
+      const nextAncestors = nextEntry ? this.#ancestorsFor(nextEntry) : [];
+      for (const [level, ancestor] of ancestors.entries()) {
+        if (level === ancestors.length - 1 || nextAncestors[level] !== ancestor) continue;
+        const rail = htmlElement(this.document, "span", "hnr-tree-rail");
+        rail.style.setProperty("--hnr-rail-level", String(level));
+        rail.dataset.level = String(level);
+        rail.dataset.continues = "true";
+        rails.append(rail);
+      }
+      rails.append(htmlElement(this.document, "span", "hnr-tree-elbow"));
+      const label = `${entry.shownCount > 0 ? "继续展开" : "展开"}${entry.countExact ? " " : "至少 "}${entry.remainingCount} 条回复`;
+      const button = htmlElement(this.document, "button", "hnr-replies-button", label);
+      button.type = "button";
+      button.setAttribute("aria-expanded", "false");
+      button.dataset.action = "expand-replies";
+      button.dataset.commentId = String(entry.parentId);
+      button.dataset.firstReplyId = String(entry.id);
+      row.append(rails, button);
+      return row;
+    }
     if (entry.kind === "missing") {
       const missing = htmlElement(this.document, "div", "hnr-missing");
       missing.setAttribute("role", "treeitem");
       missing.setAttribute("aria-level", String(entry.depth + 1));
-      missing.style.setProperty("--hnr-depth", String(Math.min(entry.depth, 12)));
+      missing.style.setProperty("--hnr-depth", String(entry.depth));
       const button = htmlElement(this.document, "button", "hnr-missing-button", `加载缺失回复 #${entry.id}`);
       button.type = "button";
       button.dataset.action = "load-missing";
@@ -2004,9 +2129,9 @@ export class ReaderView {
     row.dataset.commentId = String(entry.id);
     row.setAttribute("role", "treeitem");
     row.setAttribute("aria-level", String(entry.depth + 1));
-    row.setAttribute("aria-expanded", entry.hasChildren ? String(!entry.collapsed) : "false");
+    row.setAttribute("aria-expanded", entry.hasChildren ? String(!entry.collapsed && entry.repliesExpanded !== false) : "false");
     row.tabIndex = -1;
-    row.style.setProperty("--hnr-depth", String(Math.min(entry.depth, 12)));
+    row.style.setProperty("--hnr-depth", String(entry.depth));
     row.dataset.depth = String(entry.depth);
     row.dataset.hasChildren = String(entry.hasChildren);
     row.dataset.collapsed = String(entry.collapsed);
@@ -2033,6 +2158,7 @@ export class ReaderView {
         ? makeCollapsibleLine("hnr-tree-rail", parent.id)
         : htmlElement(this.document, "span", "hnr-tree-rail");
       rail.style.setProperty("--hnr-rail-level", String(level));
+      rail.dataset.level = String(level);
       rail.dataset.continues = String(Boolean(parent && childIndex >= 0 && childIndex < parent.childIds.length - 1));
       rail.dataset.currentParent = String(level === entry.depth - 1);
       rails.append(rail);
@@ -2127,6 +2253,13 @@ export class ReaderView {
       commentActions.append(button);
     }
     commentActions.hidden = entry.collapsed;
+    if (entry.repliesExpanded) {
+      const collapseReplies = htmlElement(this.document, "button", "hnr-replies-collapse", "收起回复");
+      collapseReplies.type = "button";
+      collapseReplies.dataset.action = "collapse-replies";
+      collapseReplies.dataset.commentId = String(comment.id);
+      commentActions.append(collapseReplies);
+    }
     row.append(rails, head, body, commentActions);
     if (branchToggle) row.append(branchToggle);
     if (comment.dead) row.dataset.dead = "true";
@@ -2188,6 +2321,16 @@ export class ReaderView {
     }
     if (action === "load-missing" && actionElement.dataset.commentId) {
       this.actions.onLoadMissing(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId);
+    }
+    if (action === "expand-replies" && actionElement.dataset.commentId) {
+      this.actions.onReplyAction?.(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId, "expand");
+      const firstId = actionElement.dataset.firstReplyId;
+      this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${firstId}"]`)?.focus({ preventScroll: true });
+    }
+    if (action === "collapse-replies" && actionElement.dataset.commentId) {
+      const id = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
+      this.#toggleCommentStable(id, () => this.actions.onReplyAction?.(id, "collapse"));
+      this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
     }
   }
 
@@ -2352,7 +2495,7 @@ export class ReaderView {
     event.preventDefault();
   }
 
-  #toggleCommentStable(id: CommentId): void {
+  #toggleCommentStable(id: CommentId, changeReplies?: () => void): void {
     this.#commentAnchorGeneration += 1;
     const generation = this.#commentAnchorGeneration;
     if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
@@ -2369,7 +2512,8 @@ export class ReaderView {
       : before && before.top >= viewport.top && before.top <= latestVisibleTop
         ? before.top
         : collapsedAnchorTop;
-    this.actions.onToggleComment(id);
+    if (changeReplies) changeReplies();
+    else this.actions.onToggleComment(id);
     if (anchorTop === undefined) return;
     this.#pinLocatedComment(id, anchorTop - viewport.top);
     this.#alignCommentAnchor(selector, id, anchorTop);
@@ -2409,7 +2553,7 @@ export class ReaderView {
     this.#visibleEntries = entries;
     this.#virtualList.setEntries(
       entries,
-      this.#preheated.size > 0 ? entries.map((entry) => this.#preheated.get(entry.id)?.estimatedHeight ?? 112) : undefined,
+      this.#preheated.size > 0 ? entries.map((entry) => entry.kind === "replies" ? 48 : this.#preheated.get(entry.id)?.estimatedHeight ?? 112) : undefined,
     );
     this.#virtualList.scrollToIndex(index);
     this.#focusedCommentId = id;

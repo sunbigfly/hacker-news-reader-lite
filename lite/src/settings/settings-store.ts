@@ -9,6 +9,14 @@ export type TranslationDisplayMode = "original" | "bilingual" | "translated";
 export type ReaderTheme = "auto" | "light" | "dark";
 export type ReaderFontFamily = "system" | "cjkSans" | "serif" | "monospace" | "custom";
 export type ReaderFontWeight = 300 | 400 | 500 | 600;
+export type CommentDisplayMode = "smart" | "expanded" | "roots";
+
+export interface ReplyDisplaySettings {
+  readonly commentDisplayMode: CommentDisplayMode;
+  readonly replyCollapseThreshold: number;
+  readonly commentExpandDepth: number;
+  readonly replyPageSize: number;
+}
 
 export const READER_FONT_FAMILIES = Object.freeze<readonly ReaderFontFamily[]>([
   "system",
@@ -49,7 +57,7 @@ export interface AiProfile {
   readonly tokensPerMinute: number;
 }
 
-export interface ReaderSettings {
+export interface ReaderSettings extends ReplyDisplaySettings {
   readonly schemaVersion: 1;
   readonly translationEnabled: boolean;
   readonly translationProvider: TranslationProviderChoice;
@@ -70,6 +78,10 @@ export interface ReaderSettings {
 
 export const DEFAULT_SETTINGS: ReaderSettings = Object.freeze({
   schemaVersion: 1,
+  commentDisplayMode: "smart",
+  replyCollapseThreshold: 10,
+  commentExpandDepth: 2,
+  replyPageSize: 20,
   translationEnabled: false,
   translationProvider: "auto",
   translationMode: "bilingual",
@@ -147,6 +159,11 @@ export function normalizeSettings(value: unknown): ReaderSettings {
     : DEFAULT_SETTINGS.fontWeight;
   return {
     schemaVersion: 1,
+    commentDisplayMode: ["smart", "expanded", "roots"].includes(String(record.commentDisplayMode))
+      ? record.commentDisplayMode as CommentDisplayMode : DEFAULT_SETTINGS.commentDisplayMode,
+    replyCollapseThreshold: Math.floor(numberInRange(record.replyCollapseThreshold, DEFAULT_SETTINGS.replyCollapseThreshold, 1, 500)),
+    commentExpandDepth: Math.floor(numberInRange(record.commentExpandDepth, DEFAULT_SETTINGS.commentExpandDepth, 1, 10)),
+    replyPageSize: Math.floor(numberInRange(record.replyPageSize, DEFAULT_SETTINGS.replyPageSize, 5, 100)),
     translationEnabled: typeof record.translationEnabled === "boolean" ? record.translationEnabled : DEFAULT_SETTINGS.translationEnabled,
     translationProvider: providers.has(record.translationProvider as TranslationProviderChoice) ? record.translationProvider as TranslationProviderChoice : DEFAULT_SETTINGS.translationProvider,
     translationMode: modes.has(record.translationMode as TranslationDisplayMode) ? record.translationMode as TranslationDisplayMode : DEFAULT_SETTINGS.translationMode,

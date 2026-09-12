@@ -99,7 +99,7 @@ export class VirtualCommentList {
     if (estimatedHeights) this.#layout.seedHeights(estimatedHeights);
     if (anchor && anchoredEntry) {
       const nextIndex = entries.findIndex((entry) => (
-        entry.kind === anchoredEntry.kind && entry.id === anchoredEntry.id
+        entry.id === anchoredEntry.id
       ));
       this.#restoreAnchor(nextIndex >= 0 ? { index: nextIndex, offset: anchor.offset } : anchor);
     }

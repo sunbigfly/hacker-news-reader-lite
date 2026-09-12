@@ -122,15 +122,15 @@ export function restoreThreadSnapshot(
   }
   try {
     const loadedIds = new Set(comments.map((comment) => comment.id));
+    const restoredAllComments = comments.length === value.comments.length;
     const optimisticStory = {
       ...story,
-      childIds: Object.freeze(story.childIds.filter((id) => loadedIds.has(id))),
+      childIds: restoredAllComments ? story.childIds : Object.freeze(story.childIds.filter((id) => loadedIds.has(id))),
     };
     const optimisticComments = comments.map((comment) => Object.freeze({
       ...comment,
-      childIds: Object.freeze(comment.childIds.filter((id) => loadedIds.has(id))),
+      childIds: restoredAllComments ? comment.childIds : Object.freeze(comment.childIds.filter((id) => loadedIds.has(id))),
     }));
-    const restoredAllComments = comments.length === value.comments.length;
     return new CommentTree(optimisticStory, optimisticComments).snapshot(
       restoredAllComments && value.complete,
       value.capturedAt,

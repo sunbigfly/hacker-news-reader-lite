@@ -6,9 +6,11 @@ import {
 } from "../settings/reader-workspace-state-store";
 
 export const READER_EMBED_RATIO = DEFAULT_READER_RATIO;
+export const READER_COMPACT_MAX_WIDTH = 900;
 const NATIVE_FORM_READER_RATIO = 0.38;
 
 export function readerEmbedWidth(viewportWidth: number, readerRatio = READER_EMBED_RATIO): number {
+  if (viewportWidth <= READER_COMPACT_MAX_WIDTH) return Math.round(Math.max(0, viewportWidth));
   return Math.round(Math.max(0, viewportWidth) * normalizeReaderRatio(readerRatio));
 }
 
@@ -44,6 +46,7 @@ export class ReaderWorkspace {
   readonly mount: HTMLDivElement;
   readonly #style: HTMLStyleElement;
   readonly #syncHostPageLayout: () => void;
+  readonly #showReader: () => void;
 
   constructor(
     readonly document: Document,
@@ -59,6 +62,10 @@ export class ReaderWorkspace {
     const measuredTopbarHeight = Math.ceil(topbar?.getBoundingClientRect().height ?? 0);
     const topbarHeight = measuredTopbarHeight > 0 ? measuredTopbarHeight : 48;
     const pageWindow = document.defaultView;
+    const compactQuery = pageWindow?.matchMedia?.(`(max-width: ${READER_COMPACT_MAX_WIDTH}px)`);
+    let compact = compactQuery?.matches ?? (pageWindow?.innerWidth ?? 1024) <= READER_COMPACT_MAX_WIDTH;
+    const previousInert = body.getAttribute("inert");
+    let showReaderOverForm = false;
     const initialScrollY = pageWindow?.scrollY ?? 0;
     const styleRestorers: Array<() => void> = [];
     const hadWorkspaceClass = html.classList.contains("hnr-reader-embedded-right");
@@ -213,6 +220,23 @@ html.hnr-reader-resizing, html.hnr-reader-resizing * { cursor: col-resize !impor
 .hnr-workspace-divider:focus-visible::before,
 html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background: #7d858b; }
 .hnr-workspace-divider:focus-visible { outline: 2px solid #f26b2d; outline-offset: -2px; }
+.hnr-workspace-divider[hidden] { display: none; }
+.hnr-workspace-return {
+  position: fixed;
+  z-index: 2147483641;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #b94d1c;
+  border-radius: 24px;
+  background: #f26b2d;
+  color: #17120e;
+  font: 700 16px/1.4 system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.hnr-workspace-return[hidden] { display: none; }
 .hnr-workspace-mount { width: 100%; height: 100%; overflow: hidden; }
 #hn-reader-workspace > #hn-reader-root { display: block; width: 100%; height: 100%; }
 .hnr-workspace-loading {
@@ -261,19 +285,40 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     this.root.append(this.divider, this.mount);
     html.append(this.root);
 
+    const returnToReader = document.createElement("button");
+    returnToReader.type = "button";
+    returnToReader.className = "hnr-workspace-return";
+    returnToReader.textContent = "返回阅读";
+    returnToReader.hidden = true;
+    html.append(returnToReader);
+    const restoreHostInert = (): void => {
+      if (previousInert === null) body.removeAttribute("inert");
+      else body.setAttribute("inert", previousInert);
+    };
+
     const applyRatio = (nextRatio: number, preservePreferredRatio = false): void => {
       const normalizedRatio = normalizeReaderRatio(nextRatio);
       visibleRatio = automaticFormLayout
         ? Math.min(normalizedRatio, NATIVE_FORM_READER_RATIO)
         : normalizedRatio;
       if (!preservePreferredRatio) currentRatio = visibleRatio;
-      const readerWidth = percentage(visibleRatio);
-      const hostWidth = percentage(1 - visibleRatio);
+      const readerWidth = compact ? "100%" : percentage(visibleRatio);
+      const hostWidth = compact ? "100%" : percentage(1 - visibleRatio);
       html.style.setProperty("--hnr-reader-workspace-width", readerWidth, "important");
       html.style.setProperty("--hnr-host-workspace-width", hostWidth, "important");
       body.style.setProperty("width", hostWidth, "important");
       body.style.setProperty("max-width", hostWidth, "important");
       this.root.style.setProperty("width", readerWidth, "important");
+      const showHost = compact && (hostOperation === "reply" || hostOperation === "submit") && !showReaderOverForm;
+      this.root.dataset.layout = compact ? "compact" : "split";
+      this.root.style.setProperty("display", showHost ? "none" : "block", "important");
+      this.root.setAttribute("role", compact && !showHost ? "dialog" : "complementary");
+      if (compact && !showHost) this.root.setAttribute("aria-modal", "true");
+      else this.root.removeAttribute("aria-modal");
+      this.divider.hidden = compact;
+      returnToReader.hidden = !showHost;
+      if (compact && !showHost) body.setAttribute("inert", "");
+      else restoreHostInert();
       this.divider.setAttribute("aria-valuemin", "32");
       this.divider.setAttribute("aria-valuemax", String(MAX_READER_RATIO * 100));
       this.divider.setAttribute("aria-valuenow", String(Math.round(visibleRatio * 100)));
@@ -290,9 +335,19 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
         hostOperation = nextOperation;
         automaticFormLayout = hostOperation === "reply" || hostOperation === "submit";
       }
+      showReaderOverForm = false;
       applyRatio(currentRatio, true);
     };
     applyRatio(currentRatio, true);
+    this.#showReader = () => {
+      showReaderOverForm = true;
+      applyRatio(currentRatio, true);
+    };
+    this.scope.listen(returnToReader, "click", () => {
+      this.showReader();
+      this.mount.querySelector<HTMLElement>("#hn-reader-root")?.shadowRoot
+        ?.querySelector<HTMLElement>(".hnr-close")?.focus();
+    });
 
     if (topbar && typeof ResizeObserver === "function") {
       const topbarObserver = new ResizeObserver(() => {
@@ -304,6 +359,39 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     }
 
     let activePointerId: number | null = null;
+    const viewport = pageWindow?.visualViewport;
+    let viewportFrame: number | null = null;
+    const syncViewport = (): void => {
+      const useVisibleViewport = compact && viewport && viewport.scale === 1;
+      this.root.style.setProperty("height", useVisibleViewport ? `${viewport.height}px` : "100dvh", "important");
+      this.root.style.setProperty("top", useVisibleViewport ? `${viewport.offsetTop}px` : "0", "important");
+    };
+    const scheduleViewport = (): void => {
+      if (viewportFrame !== null || !pageWindow) return;
+      viewportFrame = pageWindow.requestAnimationFrame(() => {
+        viewportFrame = null;
+        syncViewport();
+      });
+    };
+    if (viewport) {
+      this.scope.listen(viewport, "resize", scheduleViewport);
+      this.scope.listen(viewport, "scroll", scheduleViewport);
+      syncViewport();
+      this.scope.add(() => {
+        if (viewportFrame !== null) pageWindow?.cancelAnimationFrame(viewportFrame);
+      });
+    }
+    const syncCompactLayout = (): void => {
+      const nextCompact = compactQuery?.matches ?? (pageWindow?.innerWidth ?? 1024) <= READER_COMPACT_MAX_WIDTH;
+      if (compact === nextCompact) return;
+      activePointerId = null;
+      html.classList.remove("hnr-reader-resizing");
+      compact = nextCompact;
+      applyRatio(currentRatio, true);
+      syncViewport();
+    };
+    if (compactQuery) this.scope.listen(compactQuery, "change", syncCompactLayout);
+    else if (pageWindow) this.scope.listen(pageWindow, "resize", syncCompactLayout);
     const pointerId = (event: Event): number => (event as PointerEvent).pointerId ?? 0;
     const updateFromPointer = (event: Event): void => {
       if (activePointerId === null || pointerId(event) !== activePointerId || !pageWindow) return;
@@ -320,6 +408,7 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
       commitRatio();
     };
     this.scope.listen(this.divider, "pointerdown", (event) => {
+      if (compact) return;
       if (event instanceof MouseEvent && event.button !== 0) return;
       automaticFormLayout = false;
       activePointerId = pointerId(event);
@@ -332,6 +421,7 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
       this.scope.listen(pageWindow, "pointercancel", finishPointer);
     }
     this.scope.listen(this.divider, "keydown", (event) => {
+      if (compact) return;
       if (!(event instanceof KeyboardEvent) || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
       automaticFormLayout = false;
       const direction = event.key === "ArrowLeft" ? 1 : -1;
@@ -344,6 +434,8 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     this.scope.add(() => {
       const hostScrollTop = center?.scrollTop ?? body.scrollTop;
       this.root.remove();
+      returnToReader.remove();
+      restoreHostInert();
       this.#style.remove();
       for (const restore of styleRestorers.reverse()) restore();
       if (!hadWorkspaceClass) html.classList.remove("hnr-reader-embedded-right");
@@ -352,6 +444,7 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
   }
 
   showLoading(message = "正在载入 Hacker News 评论页…"): void {
+    this.showReader();
     const loading = this.document.createElement("div");
     loading.className = "hnr-workspace-loading";
     loading.setAttribute("role", "status");
@@ -361,6 +454,10 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
 
   syncHostPageLayout(): void {
     if (!this.scope.destroyed) this.#syncHostPageLayout();
+  }
+
+  showReader(): void {
+    if (!this.scope.destroyed) this.#showReader();
   }
 
   destroy(): void {

@@ -27,6 +27,9 @@ const HOST_NAVIGATION_PATHS = new Set([
   "/",
   "/reply",
   "/submit",
+  "/newsfaq.html",
+  "/newsguidelines.html",
+  "/formatdoc",
 ]);
 const HOST_TAB_CACHE_LIMIT = 12;
 

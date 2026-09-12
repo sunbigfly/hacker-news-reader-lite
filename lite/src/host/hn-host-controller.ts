@@ -15,6 +15,8 @@ const INTERACTIVE_TARGET_SELECTOR = [
   "[role='link']",
 ].join(",");
 
+const HN_DOCUMENT_PATHS = new Set(["/newswelcome.html", "/newsfaq.html", "/newsguidelines.html", "/formatdoc"]);
+
 interface HnTopbarTab {
   readonly href: string;
   readonly label: string;
@@ -171,6 +173,7 @@ export class HnHostController {
   }
 
   install(): void {
+    this.#installDocumentShell();
     this.#installHostAppearance();
     markHnHostReady(this.document, this.#scope);
     this.#installHostDelegates();
@@ -368,6 +371,50 @@ export class HnHostController {
     return true;
   }
 
+  #installDocumentShell(): void {
+    if (!HN_DOCUMENT_PATHS.has(this.#currentUrl.pathname) || this.document.getElementById("hnmain")) return;
+    const originalNodes = [...this.document.body.childNodes];
+    const nodes = originalNodes.filter((node) => node.nodeType !== 1 || (node as Element).tagName !== "SCRIPT");
+    // Retain HN's native container shape used by host scrolling and navigation.
+    const center = this.document.createElementNS("http://www.w3.org/1999/xhtml", "center");
+    const table = this.document.createElement("table");
+    table.id = "hnmain";
+    const head = table.insertRow().insertCell();
+    const bar = this.document.createElement("table");
+    const barRow = bar.insertRow();
+    const logo = barRow.insertCell();
+    const home = this.document.createElement("a");
+    home.href = "news";
+    home.append(this.document.createElement("img"));
+    logo.append(home);
+    const navigation = barRow.insertCell();
+    const navStrip = this.document.createElement("span");
+    navStrip.className = "pagetop";
+    navigation.append(navStrip);
+    const account = barRow.insertCell();
+    const accountStrip = this.document.createElement("span");
+    accountStrip.className = "pagetop";
+    const back = this.document.createElement("a");
+    back.href = "news";
+    back.textContent = "返回首页";
+    accountStrip.append(back);
+    account.append(accountStrip);
+    head.append(bar);
+    const row = table.insertRow();
+    row.className = "hnr-host-standalone-row";
+    const content = this.document.createElement("main");
+    content.className = "hnr-host-standalone";
+    row.insertCell().append(content);
+    // Move the existing nodes so their links, identities and listeners survive.
+    content.append(...nodes);
+    center.append(table);
+    this.document.body.prepend(center);
+    this.#scope.add(() => {
+      this.document.body.prepend(...originalNodes);
+      center.remove();
+    });
+  }
+
   #standaloneRows(page: Document): HTMLTableRowElement[] {
     const contentNodes = [...page.body.childNodes].filter((node) => (
       node.nodeType === 1
@@ -389,6 +436,13 @@ export class HnHostController {
 
   #installHostAppearance(): void {
     installHnHostAppearance(this.document, this.route, this.hostCss, this.#scope);
+    if (!this.document.querySelector('meta[name="viewport" i]')) {
+      const viewport = this.document.createElement("meta");
+      viewport.name = "viewport";
+      viewport.content = "width=device-width, initial-scale=1";
+      this.document.head.append(viewport);
+      this.#scope.add(() => viewport.remove());
+    }
 
     const topbar = this.document.querySelector<HTMLElement>(
       "#hnmain > tbody > tr:first-child > td",
@@ -429,9 +483,20 @@ export class HnHostController {
     this.#pageProjectionScope?.destroy();
     const scope = this.#scope.child();
     this.#pageProjectionScope = scope;
+    if (this.#currentRoute.kind === "other") {
+      ownClass(scope, this.document.documentElement, "hnr-host-native-page");
+    }
+    if (HN_DOCUMENT_PATHS.has(this.#currentUrl.pathname)) {
+      const content = this.document.querySelector<HTMLElement>(".hnr-host-standalone")
+        ?? this.document.querySelector<HTMLElement>('#hnmain table[width="500"]')
+        ?? (!this.document.getElementById("hnmain") ? this.document.body : null);
+      if (content) ownClass(scope, content, "hnr-host-document");
+    }
     this.#ensureTopbarTabs(scope);
     this.#syncTopbarSelection(scope);
     this.#installResumeReaderCommand(scope);
+    this.#hideTopbarKarma(scope);
+    this.#installProfileLogout(scope);
     if (this.#currentRoute.kind === "list") {
       this.#normalizeListTable(scope);
       this.#installListRows(
@@ -475,6 +540,67 @@ export class HnHostController {
     });
     navigation.replaceChildren(strip);
     scope.add(() => navigation.replaceChildren(...previousNodes));
+  }
+
+  #hideTopbarKarma(scope: LifecycleScope): void {
+    const account = this.document.querySelector("[data-hnr-topbar-account]");
+    const profile = account?.querySelector<HTMLAnchorElement>(
+      'a[href^="user?id="], a[href*="/user?id="]',
+    );
+    if (!account || !profile) return;
+
+    // HN can wrap the numeric value in #karma, leaving the parentheses in
+    // separate text nodes. Keep the native elements and links intact.
+    const walker = this.document.createTreeWalker(account, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    walker.currentNode = profile;
+    const fragments: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (profile.contains(node)) continue;
+      if (node.nodeType === Node.ELEMENT_NODE && (node as Element).matches("a, button, input, select, textarea")) break;
+      if (node.nodeType === Node.TEXT_NODE) fragments.push(node as Text);
+    }
+    const prefix = /^\s*\(\s*-?\d[\d,]*\s*\)/u.exec(fragments.map((node) => node.data).join(""));
+    if (!prefix) return;
+    let remaining = prefix[0].length;
+    for (const node of fragments) {
+      if (remaining === 0) break;
+      const original = node.data;
+      const removed = Math.min(remaining, original.length);
+      node.data = original.slice(removed);
+      remaining -= removed;
+      scope.add(() => { node.data = original; });
+    }
+  }
+
+  #installProfileLogout(scope: LifecycleScope): void {
+    const account = this.document.querySelector("[data-hnr-topbar-account]");
+    const logout = [...account?.querySelectorAll<HTMLAnchorElement>("a[href]") ?? []].find((link) => {
+      try { return new URL(link.href, this.document.baseURI).pathname === "/logout"; }
+      catch { return false; }
+    });
+    if (!logout) return;
+    const profile = this.#topbarAccountName();
+    const isOwnProfile = this.#currentUrl.pathname === "/user"
+      && profile !== null && this.#currentUrl.searchParams.get("id") === profile;
+    if (isOwnProfile) {
+      const session = this.document.createElement("div");
+      session.className = "hnr-host-profile-session";
+      const action = logout.cloneNode(true) as HTMLAnchorElement;
+      action.textContent = "退出登录";
+      action.setAttribute("aria-label", "退出当前账号登录");
+      session.append(action);
+      const form = this.document.querySelector("#hnmain form");
+      if (form) form.after(session);
+      else this.document.querySelector("#hnmain > tbody > tr:last-child > td")?.append(session);
+      scope.add(() => session.remove());
+    }
+    ownAttribute(scope, logout, "data-hnr-logout-hidden", "true");
+    const separator = logout.previousSibling;
+    if (separator?.nodeType === 3 && /\|\s*$/u.test(separator.textContent ?? "")) {
+      const text = separator.textContent;
+      separator.textContent = text?.replace(/\s*\|\s*$/u, "") ?? "";
+      scope.add(() => { separator.textContent = text; });
+    }
   }
 
   #topbarAccountName(): string | null {

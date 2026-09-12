@@ -1,4 +1,5 @@
 import type { CommentId, StoryId } from "../thread/model";
+import type { ReplyWindow } from "../thread/comment-projection";
 
 export const DEFAULT_READER_RATIO = 0.52;
 export const MIN_READER_RATIO = 0.32;
@@ -29,6 +30,7 @@ export interface ReaderTopicState {
   readonly schemaVersion: 1;
   readonly position: ReaderTopicPosition | null;
   readonly collapsedCommentIds: readonly CommentId[];
+  readonly replyWindows?: readonly ReplyWindow[];
   readonly storyTitle: string;
   readonly visitedAt: number;
 }
@@ -89,13 +91,28 @@ export function normalizeReaderTopicState(value: unknown): ReaderTopicState | nu
       .filter((id): id is number => Number.isSafeInteger(id) && id > 0))] as CommentId[]
     : [];
   const storyTitle = typeof record.storyTitle === "string" ? record.storyTitle.trim().slice(0, 500) : "";
+  const replyWindows = new Map<CommentId, number>();
+  if (Array.isArray(record.replyWindows)) {
+    for (const value of record.replyWindows as readonly unknown[]) {
+      if (!value || typeof value !== "object") continue;
+      const entry = value as Partial<ReplyWindow>;
+      const id = Number(entry.id);
+      const count = Number(entry.count);
+      if (Number.isSafeInteger(id) && id > 0 && Number.isSafeInteger(count) && count >= 0) {
+        replyWindows.set(id as CommentId, count);
+      }
+    }
+  }
   const rawVisitedAt = Number(record.visitedAt);
   const visitedAt = Number.isFinite(rawVisitedAt) && rawVisitedAt > 0 ? rawVisitedAt : 0;
-  if (!position && collapsedCommentIds.length === 0 && !storyTitle && visitedAt === 0) return null;
+  if (!position && collapsedCommentIds.length === 0 && replyWindows.size === 0 && !storyTitle && visitedAt === 0) return null;
   return Object.freeze({
     schemaVersion: 1,
     position,
     collapsedCommentIds: Object.freeze(collapsedCommentIds),
+    ...(replyWindows.size > 0 ? {
+      replyWindows: Object.freeze([...replyWindows].map(([id, count]) => Object.freeze({ id, count }))),
+    } : {}),
     storyTitle,
     visitedAt,
   });
