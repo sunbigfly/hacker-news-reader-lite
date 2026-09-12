@@ -1,4 +1,5 @@
 import { LifecycleScope } from "../kernel/lifecycle";
+import { supportsGmResponseStreams } from "../network/gm-stream-support";
 
 const HN_UPDATES_STREAM_URL = "https://hacker-news.firebaseio.com/v0/updates.json";
 
@@ -164,7 +165,7 @@ export class HnRealtimeAdapter {
 
   static fromDocument(document: Document): HnRealtimeAdapter {
     return new HnRealtimeAdapter(
-      typeof GM_xmlhttpRequest === "function"
+      typeof GM_xmlhttpRequest === "function" && supportsGmResponseStreams(document.defaultView)
         ? (url) => new GmHnRealtimeSource(document, url)
         : undefined,
     );

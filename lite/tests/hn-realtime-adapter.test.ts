@@ -22,6 +22,16 @@ class FakeRealtimeSource extends EventTarget {
 }
 
 describe("HnRealtimeAdapter", () => {
+  it("does not open or retry a persistent stream on X Browser's synchronous native bridge", () => {
+    const request = vi.fn();
+    vi.stubGlobal("GM_xmlhttpRequest", request);
+    vi.stubGlobal("mbrowser", { GM_readStream: vi.fn() });
+    const scope = new LifecycleScope();
+    expect(HnRealtimeAdapter.fromDocument(document).subscribe(scope, { onItemsChanged: vi.fn() })).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    scope.destroy();
+  });
+
   it("uses the userscript streaming gateway instead of CSP-blocked EventSource", async () => {
     let options: GmRequestOptions | undefined;
     let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;

@@ -5,6 +5,7 @@ import {
   type RequestDescriptor,
 } from "./request-contract";
 import { RequestScheduler } from "./request-scheduler";
+import { supportsGmResponseStreams } from "./gm-stream-support";
 
 function parseHeaders(rawHeaders = ""): Readonly<Record<string, string>> {
   const headers: Record<string, string> = {};
@@ -181,7 +182,7 @@ export class GmHttpClient implements HttpClient {
       signal.addEventListener("abort", onAbort, { once: true });
       timer = setTimeout(onTimeout, descriptor.timeoutMs ?? 20_000);
       localPhase(descriptor, "dispatch");
-      const streaming = descriptor.stream === true && descriptor.onProgress !== undefined;
+      const streaming = descriptor.stream === true && descriptor.onProgress !== undefined && supportsGmResponseStreams();
       const options: GmRequestOptions = {
         method: descriptor.method,
         url: descriptor.url,

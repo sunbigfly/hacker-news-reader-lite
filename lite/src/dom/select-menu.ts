@@ -64,7 +64,12 @@ export function installSelectMenus(root: HTMLElement | ShadowRoot): {
       element.classList.toggle("active", active);
       if (active) {
         controls.get(current)?.button.setAttribute("aria-activedescendant", element.id);
-        element.scrollIntoView?.({ block: "nearest" });
+        // Scroll only this list. scrollIntoView can also move the settings page
+        // on mobile, triggering our ancestor-scroll dismissal immediately.
+        const top = element.offsetTop;
+        const bottom = top + element.offsetHeight;
+        if (top < menu.scrollTop) menu.scrollTop = top;
+        else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
       }
     }
   };

@@ -96,3 +96,24 @@ it("can run from serialized source in the standalone offline document", () => {
   required(document.querySelector<HTMLElement>('[data-option-index="1"]')).click();
   expect(new FormData(form).get("mode")).toBe("bilingual");
 });
+
+it("reveals the active option by scrolling only the menu, without scrolling its ancestors", () => {
+  const { root, form, button } = fixture();
+  // A WebView may scroll the containing page when scrollIntoView is used.
+  const scrollIntoView = vi.fn(() => { queueMicrotask(() => form.dispatchEvent(new Event("scroll"))); });
+  const previous = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+  Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  cleanups.push(() => {
+    if (previous) Object.defineProperty(Element.prototype, "scrollIntoView", previous);
+    else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
+  button.click();
+  expect(scrollIntoView).not.toHaveBeenCalled();
+  const menu = required(root.querySelector<HTMLElement>(".hnr-select-menu"));
+  const option = required(menu.querySelector<HTMLElement>('[data-option-index="3"]'));
+  Object.defineProperties(menu, { clientHeight: { value: 80 }, scrollTop: { value: 0, writable: true } });
+  Object.defineProperties(option, { offsetTop: { value: 140 }, offsetHeight: { value: 40 } });
+  button.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, composed: true }));
+  expect(menu.scrollTop).toBe(100);
+  expect(root.querySelector(".hnr-select-menu")).toBe(menu);
+});

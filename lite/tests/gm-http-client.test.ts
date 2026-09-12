@@ -5,6 +5,25 @@ import { RequestScheduler } from "../src/network/request-scheduler";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("GmHttpClient progress", () => {
+  it("buffers finite streamed responses as text on X Browser without calling the blocking bridge", async () => {
+    let options: GmRequestOptions | undefined;
+    const nativeRead = vi.fn();
+    vi.stubGlobal("window", { mbrowser: { GM_readStream: nativeRead } });
+    vi.stubGlobal("GM_xmlhttpRequest", (request: GmRequestOptions) => { options = request; return { abort: vi.fn() }; });
+    const progress = vi.fn();
+    const pending = new GmHttpClient().request({
+      key: "x-browser:stream", lane: "ai", method: "POST", url: "https://example.com/stream",
+      stream: true, onProgress: progress, decode: (response) => response.body,
+    });
+    expect(options?.responseType).toBe("text");
+    expect(options?.onloadstart).toBeUndefined();
+    const body = 'data: {"text":"done"}\n\ndata: [DONE]\n\n';
+    options?.onload({ status: 200, statusText: "OK", responseHeaders: "content-type: text/event-stream", responseText: body });
+    await expect(pending).resolves.toBe(body);
+    expect(progress).toHaveBeenCalledOnce();
+    expect(nativeRead).not.toHaveBeenCalled();
+  });
+
   it("reads fetch-mode streams while enabling Tampermonkey MV3 parallel dispatch", async () => {
     let options: GmRequestOptions | undefined;
     vi.stubGlobal("GM_xmlhttpRequest", (request: GmRequestOptions): GmRequestHandle => {
