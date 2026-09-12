@@ -26,6 +26,8 @@ export class VirtualCommentList {
   #frame: number | null = null;
   #notifyViewportChange = false;
   #ignoredScrollTop: number | null = null;
+  #paused = false;
+  #pendingRefresh = false;
 
   constructor(
     readonly container: HTMLElement,
@@ -121,6 +123,7 @@ export class VirtualCommentList {
 
   schedule(notifyViewportChange = false): void {
     this.#notifyViewportChange ||= notifyViewportChange;
+    if (this.#paused) { this.#pendingRefresh = true; return; }
     if (this.#frame !== null) return;
     this.#frame = this.#requestFrame(() => {
       this.#frame = null;
@@ -131,6 +134,12 @@ export class VirtualCommentList {
   }
 
   refreshNow(notifyViewportChange = false): void {
+    if (this.#scope.destroyed) return;
+    if (this.#paused) {
+      this.#pendingRefresh = true;
+      this.#notifyViewportChange ||= notifyViewportChange;
+      return;
+    }
     const range = this.#layout.range(this.container.scrollTop, this.container.clientHeight || 720);
     const fragment = this.container.ownerDocument.createDocumentFragment();
     const renderedEntries: VisibleEntry[] = [];
@@ -156,6 +165,22 @@ export class VirtualCommentList {
 
   destroy(): void {
     this.#scope.destroy();
+  }
+
+  setPaused(paused: boolean): void {
+    if (this.#scope.destroyed || paused === this.#paused) return;
+    this.#paused = paused;
+    if (paused) {
+      this.#pendingRefresh = true;
+      if (this.#frame !== null) this.#cancelFrame(this.#frame);
+      this.#frame = null;
+      this.#resizeObserver?.disconnect();
+    } else if (this.#pendingRefresh) {
+      this.#pendingRefresh = false;
+      const notify = this.#notifyViewportChange;
+      this.#notifyViewportChange = false;
+      this.refreshNow(notify);
+    }
   }
 
   #requestFrame(callback: FrameRequestCallback): number {

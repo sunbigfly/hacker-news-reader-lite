@@ -1,5 +1,6 @@
 import type { ArticleSnapshot } from "../article/article-extractor";
 import { authorAvatarLibrarySource } from "../avatar/author-avatar";
+import { installSelectMenus } from "../dom/select-menu";
 import { nativeHnItemUrl } from "../host/hn-native-bypass";
 import {
   readerFontFamilyCss,
@@ -128,6 +129,8 @@ const host=document.getElementById("hn-reader-root");
 let root=host.shadowRoot;
 if(!root){const template=host.querySelector("template");root=host.attachShadow({mode:"open"});if(template){root.append(template.content.cloneNode(true));template.remove()}}
 const shell=root.querySelector(".hnr-offline-shell");
+const selectMenus=(${installSelectMenus.toString()})(root);
+window.addEventListener("pagehide",()=>selectMenus.destroy(),{once:true});
 const thread=root.getElementById("thread");
 const search=root.getElementById("search");
 const mode=root.getElementById("mode");
@@ -175,7 +178,7 @@ const makeRow=(comment,depth,path)=>{
 const render=()=>{const visible=matchingIds();const fragment=document.createDocumentFragment();const visited=new Set();const visit=(comment,depth,path)=>{if(visited.has(comment.id)||visible&&!visible.has(comment.id))return;visited.add(comment.id);const nextPath=[...path,comment.id];fragment.append(makeRow(comment,depth,nextPath));if(visible||!collapsed.has(comment.id))for(const child of byParent.get(comment.id)||[])visit(child,depth+1,nextPath)};for(const comment of byParent.get(data.story.id)||[])visit(comment,0,[]);for(const comment of data.comments)if(!visited.has(comment.id)&&!byId.has(comment.parentId))visit(comment,0,[]);thread.replaceChildren(fragment);if(!thread.childElementCount){const empty=document.createElement("div");empty.className="hnr-offline-empty";empty.textContent="没有匹配的评论";thread.append(empty)}};
 const toggleBranch=(id)=>{const viewport=thread.closest(".hnr-comments");const before=root.getElementById("comment-"+id)?.getBoundingClientRect().top;if(collapsed.has(id))collapsed.delete(id);else collapsed.add(id);render();const after=root.getElementById("comment-"+id)?.getBoundingClientRect().top;if(viewport&&before!==undefined&&after!==undefined&&Math.abs(after-before)>.5)viewport.scrollTop+=after-before};
 const setMode=()=>{shell.classList.remove("mode-original","mode-bilingual","mode-translated");shell.classList.add("mode-"+mode.value)};
-mode.value=data.translationMode;mode.addEventListener("change",setMode);setMode();search.addEventListener("input",render);
+mode.value=data.translationMode;selectMenus.refresh();mode.addEventListener("change",setMode);setMode();search.addEventListener("input",render);
 root.getElementById("collapse").addEventListener("click",()=>{for(const comment of data.comments)if(comment.childIds.length)collapsed.add(comment.id);render()});
 root.getElementById("expand").addEventListener("click",()=>{collapsed.clear();render()});
 render();

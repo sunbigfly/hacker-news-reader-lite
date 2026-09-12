@@ -1101,7 +1101,7 @@ describe("ReaderView", () => {
       const scale = view.surfaceRoot.querySelector<HTMLInputElement>('input[name="fontScale"]');
       const status = view.surfaceRoot.querySelector(".hnr-settings-status");
       if (!form || !picker || !scale || !status) throw new Error("Compact settings controls were not rendered");
-      expect(view.surfaceRoot.activeElement).toBe(picker);
+      expect(view.surfaceRoot.activeElement).toBe(picker.nextElementSibling);
       expect(picker.options).toHaveLength(4);
       const initialStatus = status.textContent;
       const switchPanel = (value: string): void => {

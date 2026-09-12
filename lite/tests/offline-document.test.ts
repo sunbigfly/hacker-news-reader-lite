@@ -44,6 +44,29 @@ const fontSettings = {
 } as const;
 
 describe("offline document", () => {
+  it("starts the styled selector in the exported mode and applies a picked option", () => {
+    document.documentElement.innerHTML = buildOfflineHtml({
+      snapshot, translations: new Map(), translationMode: "bilingual", translationTheme: "paper", fontSettings, readerCss,
+    });
+    const runtime = document.querySelector<HTMLScriptElement>('script[nonce="hnr-offline-v1"]');
+    if (!runtime?.textContent) throw new Error("Offline runtime was not emitted");
+    try {
+      window.eval(runtime.textContent);
+      const root = document.querySelector("#hn-reader-root")?.shadowRoot;
+      const button = root?.querySelector<HTMLButtonElement>(".hnr-select-trigger");
+      if (!root || !button) throw new Error("Offline dropdown was not mounted");
+      expect(button.textContent).toBe("双语");
+      button.click();
+      const option = root.querySelector<HTMLElement>('[data-option-index="0"]');
+      if (!option) throw new Error("Offline dropdown options were not mounted");
+      option.click();
+      expect(root.querySelector(".hnr-offline-shell")?.classList.contains("mode-original")).toBe(true);
+      expect(button.textContent).toBe("仅原文");
+    } finally {
+      window.dispatchEvent(new PageTransitionEvent("pagehide"));
+    }
+  });
+
   it("serializes a self-contained searchable reply tree without credentials", () => {
     const html = buildOfflineHtml({
       snapshot,

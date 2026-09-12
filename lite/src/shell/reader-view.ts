@@ -1,4 +1,5 @@
 import { htmlElement } from "../dom/html-element";
+import { installSelectMenus } from "../dom/select-menu";
 import { createAuthorAvatarElement } from "../avatar/author-avatar";
 import { assertSafeExternalUrl } from "../article/url-policy";
 import { applyReaderFontRendering } from "../font/reader-font-rendering";
@@ -153,6 +154,7 @@ export class ReaderView {
   #settingsSurfaceCleanup: (() => void) | null = null;
   #settingsEscapeListener: EventListener | null = null;
   #summarySurface: HTMLElement | null = null;
+  #summarySelectMenus: ReturnType<typeof installSelectMenus> | null = null;
   #summaryEscapeListener: EventListener | null = null;
   #summaryReturnFocus: HTMLElement | null = null;
   #summaryOnSelect: ((entry: DiscussionSummaryHistoryEntry) => void) | null = null;
@@ -335,7 +337,7 @@ export class ReaderView {
           return;
         }
         const report = (): void => {
-          if (this.#scope.destroyed || this.#viewportCommentIds.join(",") !== identity) return;
+          if (this.#scope.destroyed || this.#settingsSurfaceCleanup || this.#viewportCommentIds.join(",") !== identity) return;
           this.#reportedViewportIdentity = identity;
           this.actions.onViewportCommentsChanged(Object.freeze(ids));
         };
@@ -419,6 +421,8 @@ export class ReaderView {
     });
     this.#scope.add(() => this.#host.remove());
     this.#scope.add(() => {
+      this.#detachSettingsEscapeListener();
+      this.#removeSettingsSurface();
       if (this.#statusTimer !== null) this.document.defaultView?.clearTimeout(this.#statusTimer);
       this.#statusTimer = null;
       if (this.#locatorNoticeTimer !== null) this.document.defaultView?.clearTimeout(this.#locatorNoticeTimer);
@@ -704,6 +708,7 @@ export class ReaderView {
   }
 
   #syncMountedTranslation(id: CommentId): void {
+    if (this.#settingsSurfaceCleanup) return;
     const row = this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`);
     if (!row) return;
     const original = row.querySelector<HTMLElement>(".hnr-original-text");
@@ -869,6 +874,7 @@ export class ReaderView {
     layer.append(surface);
     this.#shell.append(layer);
     this.#summarySurface = layer;
+    this.#summarySelectMenus = installSelectMenus(surface);
     const escapeListener: EventListener = (event) => {
       const keyboardEvent = event as KeyboardEvent;
       if (keyboardEvent.key !== "Escape" || !layer.isConnected) return;
@@ -1391,6 +1397,8 @@ export class ReaderView {
 
   #removeSummarySurface(restoreFocus = true): void {
     this.#detachSummaryEscapeListener();
+    this.#summarySelectMenus?.destroy();
+    this.#summarySelectMenus = null;
     this.#summarySurface?.remove();
     this.#summarySurface = null;
     this.#summaryOnSelect = null;
@@ -1426,6 +1434,17 @@ export class ReaderView {
     this.#removeSettingsSurface();
     this.#removeSummarySurface(false);
     this.#shadow.querySelector(".hnr-settings-backdrop")?.remove();
+    this.#releaseLocatedCommentPin();
+    this.#locateFocusGeneration += 1;
+    this.#commentAnchorGeneration += 1;
+    const pageWindow = this.document.defaultView;
+    if (this.#locateFocusFrame !== null) pageWindow?.cancelAnimationFrame(this.#locateFocusFrame);
+    if (this.#commentAnchorFrame !== null) pageWindow?.cancelAnimationFrame(this.#commentAnchorFrame);
+    if (this.#viewportNotifyTimer !== null) pageWindow?.clearTimeout(this.#viewportNotifyTimer);
+    this.#locateFocusFrame = this.#commentAnchorFrame = this.#viewportNotifyTimer = null;
+    this.#virtualList.setPaused(true);
+    const previousInert = this.#commentViewport.getAttribute("inert");
+    this.#commentViewport.setAttribute("inert", "");
     const backdrop = htmlElement(this.document, "div", "hnr-settings-backdrop");
     const form = htmlElement(this.document, "form", "hnr-settings hnr-settings-popover");
     form.setAttribute("role", "dialog");
@@ -1801,10 +1820,15 @@ export class ReaderView {
     form.append(mobileHeader, sidebar, settingsPanel, close);
     backdrop.append(form);
     this.#shell.append(backdrop);
+    const selectMenus = installSelectMenus(form);
     this.#settingsSurfaceCleanup = () => {
+      selectMenus.destroy();
       titleFontPicker.destroy();
       bodyFontPicker.destroy();
       backdrop.remove();
+      if (previousInert === null) this.#commentViewport.removeAttribute("inert");
+      else this.#commentViewport.setAttribute("inert", previousInert);
+      if (!this.#scope.destroyed) this.#virtualList.setPaused(false);
     };
 
     const setStatus = (message: string, tone: "neutral" | "success" | "error" = "neutral"): void => {
@@ -1916,6 +1940,15 @@ export class ReaderView {
       if ([...modelSelect.options].some((option) => option.value === aiModel.value)) modelSelect.value = aiModel.value;
       else modelSelect.selectedIndex = -1;
     });
+    const updateAppearanceValues = (preview: ReaderSettings): void => {
+      fontScaleValue.value = `${Math.round(preview.fontScale * 100)}%`;
+      lineHeightValue.value = preview.lineHeight.toFixed(2);
+      for (const [control, value] of [[fontScale, preview.fontScale], [lineHeight, preview.lineHeight]] as const) {
+        const progress = (value - Number(control.min)) / (Number(control.max) - Number(control.min));
+        control.style.setProperty("--hnr-range-progress", `${Math.round(progress * 100)}%`);
+      }
+    };
+    let previewApplied = false;
     const previewAppearance = (): void => {
       const preview = normalizeSettings({
         ...settings,
@@ -1930,17 +1963,14 @@ export class ReaderView {
         lineHeight: lineHeight.value,
         translationTheme: translationTheme.value,
       });
-      fontScaleValue.value = `${Math.round(preview.fontScale * 100)}%`;
-      lineHeightValue.value = preview.lineHeight.toFixed(2);
-      for (const [control, value] of [[fontScale, preview.fontScale], [lineHeight, preview.lineHeight]] as const) {
-        const progress = (value - Number(control.min)) / (Number(control.max) - Number(control.min));
-        control.style.setProperty("--hnr-range-progress", `${Math.round(progress * 100)}%`);
-      }
+      updateAppearanceValues(preview);
+      previewApplied = true;
       this.applySettings(preview);
       callbacks.onThemePreview?.(preview.theme);
       callbacks.onSettingsPreview?.(preview);
     };
     this.#settingsPreviewRestore = () => {
+      if (!previewApplied) return;
       this.applySettings(settings);
       callbacks.onThemePreview?.(settings.theme);
       callbacks.onSettingsPreview?.(settings);
@@ -1951,7 +1981,7 @@ export class ReaderView {
     titleFontPicker.fontFamilyInput.addEventListener("change", previewAppearance);
     bodyFontPicker.fontFamilyInput.addEventListener("change", previewAppearance);
     theme.addEventListener("change", previewAppearance);
-    previewAppearance();
+    updateAppearanceValues(settings);
     const cancelSettings = (): void => {
       this.#detachSettingsEscapeListener();
       this.#discardSettingsPreview();
@@ -2046,13 +2076,11 @@ export class ReaderView {
       const pageWindow = this.document.defaultView;
       const compact = pageWindow?.matchMedia?.(`(max-width: ${READER_COMPACT_MAX_WIDTH}px)`).matches
         ?? (pageWindow?.innerWidth ?? 1024) <= READER_COMPACT_MAX_WIDTH;
-      (compact ? panelSelect : tabs.get(activePanel))?.focus();
+      (compact ? panelSelect.nextElementSibling as HTMLElement | null : tabs.get(activePanel))?.focus();
     });
   }
 
   destroy(): void {
-    this.#detachSettingsEscapeListener();
-    this.#removeSettingsSurface();
     this.#scope.destroy();
   }
 
@@ -2429,12 +2457,13 @@ export class ReaderView {
   }
 
   #handleKeydown(event: KeyboardEvent): void {
+    if (this.#settingsSurfaceCleanup && event.key !== "Escape" && event.key !== "Tab") return;
     if (event.key === "Escape") {
       const overlay = this.#shadow.querySelector<HTMLElement>(".hnr-settings-backdrop");
       if (overlay) {
         this.#detachSettingsEscapeListener();
         this.#discardSettingsPreview();
-        overlay.remove();
+        this.#removeSettingsSurface();
       }
       else if (this.#summarySurface) this.#removeSummarySurface();
       else this.actions.onClose();
