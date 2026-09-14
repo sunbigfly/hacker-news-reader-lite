@@ -11,15 +11,17 @@ describe("ReaderWorkspace", () => {
     document.documentElement.removeAttribute("op");
   });
 
-  function mockViewport(width: number): MediaQueryList {
+  function mockViewport(width: number, scrollTo = vi.fn()): MediaQueryList {
     const query = Object.assign(new EventTarget(), { matches: width <= 900, media: "(max-width: 900px)" });
     vi.stubGlobal("matchMedia", vi.fn(() => query));
-    vi.stubGlobal("scrollTo", vi.fn());
+    vi.stubGlobal("scrollTo", scrollTo);
     return query as MediaQueryList;
   }
 
   it.each([320, 390, 768, 820, 900])("opens a full-screen reader at %s px and restores host state on close", (width) => {
-    mockViewport(width);
+    const scrollTo = vi.fn();
+    mockViewport(width, scrollTo);
+    vi.stubGlobal("scrollY", 256);
     document.documentElement.innerHTML = "<head></head><body style='width:85%'><center><table id='hnmain'></table></center></body>";
     const onReaderRatioChange = vi.fn();
     const scope = new LifecycleScope();
@@ -35,12 +37,21 @@ describe("ReaderWorkspace", () => {
     expect(workspace.divider.hidden).toBe(true);
     workspace.divider.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
     expect(onReaderRatioChange).not.toHaveBeenCalled();
-    if (center) center.scrollTop = 256;
+    expect(center?.style.overflowY).toBe("hidden");
+    expect(document.body.style.position).toBe("fixed");
+    if (center) {
+      center.scrollTop = 999;
+      center.dispatchEvent(new Event("scroll"));
+    }
+    expect(center?.scrollTop).toBe(256);
     scope.destroy();
     expect(document.body.style.width).toBe("85%");
     expect(document.body.hasAttribute("inert")).toBe(false);
     expect(center?.hasAttribute("inert")).toBe(false);
     expect(center?.scrollTop).toBe(256);
+    expect(document.body.style.position).toBe("");
+    expect(center?.style.overflowY).toBe("");
+    expect(scrollTo).toHaveBeenCalledWith({ left: 0, top: 256, behavior: "instant" });
     expect(document.querySelector(".hnr-workspace-return")).toBeNull();
   });
 
@@ -57,9 +68,11 @@ describe("ReaderWorkspace", () => {
     expect(document.body.style.width).toBe("30%");
     expect(document.body.getAttribute("inert")).toBe("original");
     expect(workspace.divider.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>("body > center")?.style.overflowY).toBe("auto");
     Object.assign(media, { matches: true });
     media.dispatchEvent(new Event("change"));
     expect(workspace.root.style.width).toBe("100%");
+    expect(document.querySelector<HTMLElement>("body > center")?.style.overflowY).toBe("hidden");
     expect(onReaderRatioChange).not.toHaveBeenCalled();
     scope.destroy();
     expect(removeListener).toHaveBeenCalledWith("change", expect.any(Function), undefined);
@@ -76,6 +89,7 @@ describe("ReaderWorkspace", () => {
     document.documentElement.setAttribute("op", "reply");
     workspace.syncHostPageLayout();
     expect(workspace.root.style.display).toBe("none");
+    expect(document.querySelector<HTMLElement>("body > center")?.style.overflowY).toBe("auto");
     expect(document.body.style.width).toBe("100%");
     expect(document.body.hasAttribute("inert")).toBe(false);
     const returnButton = document.querySelector<HTMLButtonElement>(".hnr-workspace-return");

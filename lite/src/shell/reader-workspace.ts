@@ -17,6 +17,7 @@ export function readerEmbedWidth(viewportWidth: number, readerRatio = READER_EMB
 export interface ReaderWorkspaceOptions {
   readonly readerRatio?: number;
   readonly onReaderRatioChange?: (readerRatio: number) => void;
+  readonly onCompactReaderVisibilityChange?: (visible: boolean) => void;
 }
 
 function percentage(ratio: number): string {
@@ -67,6 +68,7 @@ export class ReaderWorkspace {
     const hostInertStates = new Map<Element, string | null>();
     let showReaderOverForm = false;
     const initialScrollY = pageWindow?.scrollY ?? 0;
+    const initialScrollX = pageWindow?.scrollX ?? 0;
     const styleRestorers: Array<() => void> = [];
     const hadWorkspaceClass = html.classList.contains("hnr-reader-embedded-right");
     let currentRatio = normalizeReaderRatio(options.readerRatio);
@@ -309,6 +311,33 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
         if (!element.hasAttribute("inert")) element.setAttribute("inert", "");
       }
     };
+    const hostScroller = center ?? body;
+    const scrollLockRestorers: Array<() => void> = [];
+    let lockedHostPosition: { top: number; left: number } | null = null;
+    const restoreLockedPosition = (): void => {
+      if (!lockedHostPosition) return;
+      if (hostScroller.scrollTop !== lockedHostPosition.top) hostScroller.scrollTop = lockedHostPosition.top;
+      if (hostScroller.scrollLeft !== lockedHostPosition.left) hostScroller.scrollLeft = lockedHostPosition.left;
+    };
+    const setHostScrollLocked = (locked: boolean): void => {
+      if (locked === (lockedHostPosition !== null)) return;
+      if (locked) {
+        lockedHostPosition = { top: hostScroller.scrollTop, left: hostScroller.scrollLeft };
+        for (const [property, value] of [["position", "fixed"], ["top", "0"], ["left", "0"]] as const) {
+          ownStyle(scrollLockRestorers, body, property, value);
+        }
+        for (const [property, value] of [["overflow-y", "hidden"], ["overscroll-behavior", "none"]] as const) {
+          ownStyle(scrollLockRestorers, hostScroller, property, value);
+        }
+        if (center) ownStyle(scrollLockRestorers, center, "touch-action", "none");
+      } else {
+        restoreLockedPosition();
+        lockedHostPosition = null;
+        for (const restore of scrollLockRestorers.splice(0).reverse()) restore();
+      }
+    };
+    // Touch scrolling is disabled by CSS; also retain the anchor across host updates.
+    this.scope.listen(hostScroller, "scroll", restoreLockedPosition, { passive: true });
 
     const applyRatio = (nextRatio: number, preservePreferredRatio = false): void => {
       const normalizedRatio = normalizeReaderRatio(nextRatio);
@@ -333,6 +362,8 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
       returnToReader.hidden = !showHost;
       if (compact && !showHost) isolateHost();
       else restoreHostInert();
+      setHostScrollLocked(compact && !showHost);
+      options.onCompactReaderVisibilityChange?.(compact && !showHost);
       this.divider.setAttribute("aria-valuemin", "32");
       this.divider.setAttribute("aria-valuemax", String(MAX_READER_RATIO * 100));
       this.divider.setAttribute("aria-valuenow", String(Math.round(visibleRatio * 100)));
@@ -446,14 +477,20 @@ html.hnr-reader-resizing .hnr-workspace-divider::before { width: 2px; background
     this.scope.add(() => html.classList.remove("hnr-reader-resizing"));
 
     this.scope.add(() => {
-      const hostScrollTop = center?.scrollTop ?? body.scrollTop;
+      const hostScrollTop = lockedHostPosition?.top ?? hostScroller.scrollTop;
+      const hostScrollLeft = lockedHostPosition?.left ?? hostScroller.scrollLeft;
+      options.onCompactReaderVisibilityChange?.(false);
+      setHostScrollLocked(false);
       this.root.remove();
       returnToReader.remove();
       restoreHostInert();
       this.#style.remove();
       for (const restore of styleRestorers.reverse()) restore();
       if (!hadWorkspaceClass) html.classList.remove("hnr-reader-embedded-right");
-      if (hostScrollTop > 0) queueMicrotask(() => pageWindow?.scrollTo(0, hostScrollTop));
+      const left = hostScrollLeft || initialScrollX;
+      if (pageWindow && (hostScrollTop > 0 || left > 0 || pageWindow.scrollY !== hostScrollTop || pageWindow.scrollX !== left)) {
+        pageWindow.scrollTo({ left, top: hostScrollTop, behavior: "instant" });
+      }
     });
   }
 

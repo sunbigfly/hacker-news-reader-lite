@@ -74,6 +74,38 @@ class FakeHnRealtimeSource extends EventTarget {
 }
 
 describe("ReaderController workspace continuity", () => {
+  it("closes the mobile Reader on browser back and retains the host document", async () => {
+    history.replaceState({ host: true }, "", "/news?p=2");
+    document.documentElement.innerHTML = "<head></head><body><center><table id='hnmain'></table></center></body>";
+    vi.stubGlobal("indexedDB", indexedDB);
+    vi.stubGlobal("GM_getValue", (_key: string, fallback: unknown) => fallback);
+    vi.stubGlobal("GM_setValue", vi.fn());
+    vi.stubGlobal("matchMedia", () => Object.assign(new EventTarget(), { matches: true }));
+    vi.stubGlobal("scrollY", 320);
+    const scrollTo = vi.fn();
+    vi.stubGlobal("scrollTo", scrollTo);
+    const host = document.querySelector("#hnmain");
+    const scope = new LifecycleScope();
+    const controller = new ReaderController(document, scope, "", new ReaderWorkspaceStateStore(), {
+      threadSnapshots: new ThreadSnapshotRepository(new MemoryCacheStore<unknown>()),
+      pageFetcher: new HnPageFetchAdapter(document, new RequestScheduler(1), () => Promise.resolve(new Response(fetchedThreadHtml(100)))),
+      yieldToFirstPaint: () => Promise.resolve(),
+      realtime: new HnRealtimeAdapter(() => new FakeHnRealtimeSource()),
+    });
+    try {
+      await controller.open(100 as never);
+      expect(document.querySelector("#hn-reader-root")).not.toBeNull();
+      history.back();
+      await vi.waitFor(() => expect(document.querySelector("#hn-reader-workspace")).toBeNull());
+      expect(document.querySelector("#hnmain")).toBe(host);
+      expect(location.pathname + location.search).toBe("/news?p=2");
+      expect(history.state).toEqual({ host: true });
+      expect(scrollTo).toHaveBeenCalledWith({ left: 0, top: 320, behavior: "instant" });
+    } finally {
+      scope.destroy();
+    }
+  });
+
   it("jumps a long deep comment header to the viewport start after the complete tree replaces the first screen", async () => {
     document.documentElement.innerHTML = `<head><base href="https://news.ycombinator.com/newcomments"></head><body><table></table></body>`;
     vi.stubGlobal("indexedDB", indexedDB);

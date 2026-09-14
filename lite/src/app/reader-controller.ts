@@ -34,6 +34,7 @@ import {
   type ReaderWorkbenchTab,
 } from "../shell/reader-view";
 import { ReaderWorkspace } from "../shell/reader-workspace";
+import { ReaderBackNavigation } from "../shell/reader-back-navigation";
 import { sanitizeHtml } from "../security/sanitize-html";
 import {
   ReaderWorkspaceStateStore,
@@ -1204,6 +1205,7 @@ class ReaderSession {
 }
 
 export class ReaderController {
+  readonly #backNavigation: ReaderBackNavigation;
   #session: ReaderSession | null = null;
   #workspace: ReaderWorkspace | null = null;
   #loadingController: AbortController | null = null;
@@ -1249,6 +1251,7 @@ export class ReaderController {
       readonly waitForCommentPathRetry?: (signal: AbortSignal) => Promise<void>;
     } = {},
   ) {
+    this.#backNavigation = new ReaderBackNavigation(document.defaultView, rootScope, () => this.close());
     this.#pageScheduler = dependencies.pageScheduler ?? new RequestScheduler(2);
     this.#pageFetcher = dependencies.pageFetcher
       ?? new HnPageFetchAdapter(document, this.#pageScheduler);
@@ -1331,6 +1334,7 @@ export class ReaderController {
     const workspace = this.#workspace ?? new ReaderWorkspace(this.document, this.rootScope, {
       readerRatio: this.workspaceStateStore.load().readerRatio,
       onReaderRatioChange: (readerRatio) => this.workspaceStateStore.saveReaderRatio(readerRatio),
+      onCompactReaderVisibilityChange: (visible) => this.#backNavigation.setActive(visible),
     });
     if (!this.#workspace) this.#workspace = workspace;
     workspace.showLoading();

@@ -148,6 +148,40 @@ describe("smart reply controls", () => {
     return { view, projection };
   }
 
+  it.each([false, true])("pins expanded replies to the clicked control through later layout updates (missing: %s)", async (missing) => {
+    const tree = missing
+      ? new CommentTree(story, [comment(2, 1, Array.from({ length: 30 }, (_, index) => index + 3))])
+      : wideTree(45);
+    const { view, projection } = render(tree);
+    const viewport = element(view.surfaceRoot, ".hnr-comments");
+    viewport.scrollTop = 200;
+    let layoutShift = 0;
+    const rect = (top: number, height: number): DOMRect => ({
+      x: 0, y: top, top, right: 800, bottom: top + height, left: 0,
+      width: 800, height, toJSON: () => ({}),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this === viewport) return rect(100, 500);
+      if (this.dataset.action === "expand-replies") return rect(360, 40);
+      if (this.dataset.commentId === "3") return rect(660 + layoutShift - viewport.scrollTop, 112);
+      return rect(0, 0);
+    });
+    element(view.surfaceRoot, '[data-action="expand-replies"]').click();
+    const firstReply = () => element(view.surfaceRoot, ':is(.hnr-comment, .hnr-missing)[data-comment-id="3"]');
+    expect(firstReply().getBoundingClientRect().top).toBe(360);
+    if (missing) tree.ingest(Array.from({ length: 30 }, (_, index) => comment(index + 3)));
+    layoutShift = 120;
+    view.update(tree, projection, true);
+    await vi.waitFor(() => expect(firstReply().getBoundingClientRect().top).toBe(360));
+    expect(firstReply().classList.contains("hnr-comment")).toBe(true);
+    viewport.dispatchEvent(new WheelEvent("wheel"));
+    layoutShift = 240;
+    const scrollTop = viewport.scrollTop;
+    view.update(tree, projection, true);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    expect(viewport.scrollTop).toBe(scrollTop);
+  });
+
   it("retains parent text, mounts replies only after activation, and can hide replies alone", () => {
     const { view, projection } = render();
     const root = view.surfaceRoot;

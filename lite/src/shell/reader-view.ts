@@ -351,7 +351,12 @@ export class ReaderView {
       },
     );
     this.#scope.listen(this.#shadow, "click", (event) => this.#handleClick(event));
-    const releaseLocatedCommentPin = (): void => this.#releaseLocatedCommentPin();
+    const releaseLocatedCommentPin = (): void => {
+      this.#releaseLocatedCommentPin();
+      this.#commentAnchorGeneration += 1;
+      if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
+      this.#commentAnchorFrame = null;
+    };
     this.#scope.listen(this.#commentViewport, "wheel", releaseLocatedCommentPin, { passive: true });
     this.#scope.listen(this.#commentViewport, "pointerdown", releaseLocatedCommentPin);
     this.#scope.listen(this.#commentViewport, "touchstart", releaseLocatedCommentPin, { passive: true });
@@ -2142,6 +2147,8 @@ export class ReaderView {
     }
     if (entry.kind === "missing") {
       const missing = htmlElement(this.document, "div", "hnr-missing");
+      missing.dataset.commentId = String(entry.id);
+      missing.tabIndex = -1;
       missing.setAttribute("role", "treeitem");
       missing.setAttribute("aria-level", String(entry.depth + 1));
       missing.style.setProperty("--hnr-depth", String(entry.depth));
@@ -2351,8 +2358,10 @@ export class ReaderView {
       this.actions.onLoadMissing(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId);
     }
     if (action === "expand-replies" && actionElement.dataset.commentId) {
-      this.actions.onReplyAction?.(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId, "expand");
-      const firstId = actionElement.dataset.firstReplyId;
+      const parentId = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
+      const firstId = Number.parseInt(actionElement.dataset.firstReplyId ?? "", 10) as CommentId;
+      const anchorTop = actionElement.getBoundingClientRect().top;
+      this.#keepCommentAnchor(firstId, anchorTop, () => this.actions.onReplyAction?.(parentId, "expand"));
       this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${firstId}"]`)?.focus({ preventScroll: true });
     }
     if (action === "collapse-replies" && actionElement.dataset.commentId) {
@@ -2525,10 +2534,6 @@ export class ReaderView {
   }
 
   #toggleCommentStable(id: CommentId, changeReplies?: () => void): void {
-    this.#commentAnchorGeneration += 1;
-    const generation = this.#commentAnchorGeneration;
-    if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
-    this.#commentAnchorFrame = null;
     const selector = `.hnr-comment[data-comment-id="${id}"]`;
     const before = this.#shadow.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
     const viewport = this.#commentViewport.getBoundingClientRect();
@@ -2541,10 +2546,21 @@ export class ReaderView {
       : before && before.top >= viewport.top && before.top <= latestVisibleTop
         ? before.top
         : collapsedAnchorTop;
-    if (changeReplies) changeReplies();
-    else this.actions.onToggleComment(id);
+    this.#keepCommentAnchor(id, anchorTop, changeReplies ?? (() => this.actions.onToggleComment(id)));
+  }
+
+  #keepCommentAnchor(id: CommentId, anchorTop: number | undefined, change: () => void): void {
+    this.#commentAnchorGeneration += 1;
+    const generation = this.#commentAnchorGeneration;
+    if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
+    this.#commentAnchorFrame = null;
+    this.#releaseLocatedCommentPin();
+    const selector = `:is(.hnr-comment, .hnr-missing)[data-comment-id="${id}"]`;
+    if (anchorTop !== undefined) {
+      this.#pinLocatedComment(id, anchorTop - this.#commentViewport.getBoundingClientRect().top);
+    }
+    change();
     if (anchorTop === undefined) return;
-    this.#pinLocatedComment(id, anchorTop - viewport.top);
     this.#alignCommentAnchor(selector, id, anchorTop);
     const view = this.document.defaultView;
     if (!view) return;
@@ -2680,12 +2696,13 @@ export class ReaderView {
     this.#locatedCommentPinFrame = view.requestAnimationFrame(() => {
       this.#locatedCommentPinFrame = null;
       if (this.#scope.destroyed || this.#locatedCommentPinId !== id) return;
-      let row = this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`);
+      const selector = `:is(.hnr-comment, .hnr-missing)[data-comment-id="${id}"]`;
+      let row = this.#shadow.querySelector<HTMLElement>(selector);
       if (!row) {
         const index = this.#visibleEntries.findIndex((entry) => entry.id === id);
         if (index < 0) return;
         this.#virtualList.scrollToIndex(index);
-        row = this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`);
+        row = this.#shadow.querySelector<HTMLElement>(selector);
       }
       if (!row) return;
       const targetTop = this.#commentViewport.getBoundingClientRect().top + this.#locatedCommentPinInsetPx;
