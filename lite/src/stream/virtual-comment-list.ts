@@ -15,6 +15,11 @@ export interface VirtualCommentPosition {
   readonly offset: number;
 }
 
+function heightIdentity(entry: VisibleEntry): string {
+  const state = entry.kind === "comment" ? `${entry.collapsed}:${entry.repliesExpanded ?? ""}` : "";
+  return `${entry.kind}:${entry.id}:${entry.depth}:${state}`;
+}
+
 export class VirtualCommentList {
   readonly #scope: LifecycleScope;
   readonly #layout: VirtualCommentLayout;
@@ -23,6 +28,7 @@ export class VirtualCommentList {
   readonly #bottom: HTMLDivElement;
   readonly #resizeObserver: ResizeObserver | null;
   #entries: readonly VisibleEntry[] = [];
+  readonly #measuredHeights = new Map<string, number>();
   #frame: number | null = null;
   #notifyViewportChange = false;
   #ignoredScrollTop: number | null = null;
@@ -57,8 +63,14 @@ export class VirtualCommentList {
           const anchor = this.#layout.anchorAt(container.scrollTop);
           let changed = false;
           for (const record of records) {
-            const index = Number.parseInt((record.target as HTMLElement).dataset.virtualIndex ?? "", 10);
-            if (Number.isSafeInteger(index)) changed = this.#layout.updateHeight(index, record.contentRect.height) || changed;
+            const target = record.target as HTMLElement;
+            // A queued observation may belong to the projection that was just replaced.
+            if (target.parentElement !== this.#items) continue;
+            const index = Number.parseInt(target.dataset.virtualIndex ?? "", 10);
+            const entry = this.#entries[index];
+            if (!entry) continue;
+            this.#measuredHeights.set(heightIdentity(entry), record.contentRect.height);
+            changed = this.#layout.updateHeight(index, record.contentRect.height) || changed;
           }
           if (!changed) return;
           this.#restoreAnchor(anchor);
@@ -69,6 +81,7 @@ export class VirtualCommentList {
     this.#scope.add(() => {
       if (this.#frame !== null) this.#cancelFrame(this.#frame);
       this.#frame = null;
+      this.#measuredHeights.clear();
       container.replaceChildren();
     });
   }
@@ -97,8 +110,13 @@ export class VirtualCommentList {
     const anchor = this.#layout.anchorAt(this.container.scrollTop);
     const anchoredEntry = anchor ? this.#entries[anchor.index] : undefined;
     this.#entries = entries;
+    // Row indices change when a nested branch opens; measurements belong to entries.
+    this.#layout.setCount(0);
     this.#layout.setCount(entries.length);
-    if (estimatedHeights) this.#layout.seedHeights(estimatedHeights);
+    for (const [index, entry] of entries.entries()) {
+      const height = this.#measuredHeights.get(heightIdentity(entry)) ?? estimatedHeights?.[index];
+      if (height !== undefined) this.#layout.updateHeight(index, height);
+    }
     if (anchor && anchoredEntry) {
       const nextIndex = entries.findIndex((entry) => (
         entry.id === anchoredEntry.id
@@ -116,7 +134,10 @@ export class VirtualCommentList {
 
   seedHeights(heights: readonly number[]): void {
     const anchor = this.#layout.anchorAt(this.container.scrollTop);
-    this.#layout.seedHeights(heights);
+    this.#layout.seedHeights(heights.map((height, index) => {
+      const entry = this.#entries[index];
+      return entry ? this.#measuredHeights.get(heightIdentity(entry)) ?? height : height;
+    }));
     this.#restoreAnchor(anchor);
     this.refreshNow();
   }

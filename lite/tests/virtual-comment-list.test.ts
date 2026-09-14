@@ -3,8 +3,63 @@
 import { describe, expect, it, vi } from "vitest";
 import type { VisibleEntry } from "../src/thread/comment-projection";
 import { VirtualCommentList } from "../src/stream/virtual-comment-list";
+import { VirtualCommentLayout } from "../src/stream/virtual-comment-layout";
 
 describe("VirtualCommentList", () => {
+  it("keeps measured heights with their comments across repeated nested reply expansion", () => {
+    let resize: ResizeObserverCallback | undefined;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe(): void {}
+      disconnect(): void {}
+    });
+    const container = document.createElement("div");
+    const layout = new VirtualCommentLayout();
+    const list = new VirtualCommentList(container, () => document.createElement("article"), undefined, layout);
+    const comment = (id: number, depth: number): VisibleEntry => ({
+      kind: "comment", id: id as never, depth, collapsed: false, hasChildren: true,
+    });
+    const parent = comment(2, 0);
+    const nested = comment(3, 1);
+    const sibling = comment(20, 0);
+    const folded: VisibleEntry = {
+      kind: "replies", id: 4 as never, parentId: 3 as never, depth: 2,
+      remainingCount: 2, countExact: true, shownCount: 0,
+    };
+    const measure = (heights: number[]): void => {
+      const rows = [...container.querySelectorAll<HTMLElement>("[data-virtual-index]")];
+      resize?.(rows.map((target, index) => ({
+        target, contentRect: new DOMRect(0, 0, 800, heights[index] ?? 112),
+        borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [],
+      })), {} as ResizeObserver);
+    };
+    try {
+      list.setEntries([parent, nested, folded, sibling]);
+      measure([400, 240, 48, 800]);
+      const staleRows = [...container.querySelectorAll<HTMLElement>("[data-virtual-index]")];
+      list.setEntries([parent, nested, comment(4, 2), comment(5, 2), sibling], [112, 112, 112, 112, 112]);
+      expect(layout.offsetFor(2)).toBe(640);
+      expect(layout.offsetFor(3) - layout.offsetFor(2)).toBe(112);
+      measure([400, 240, 120, 180, 800]);
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        list.setEntries([parent, nested, folded, sibling]);
+        expect(layout.offsetFor(3)).toBe(688);
+        list.setEntries([parent, nested, comment(4, 2), comment(5, 2), sibling]);
+        expect(layout.offsetFor(4)).toBe(940);
+      }
+      const staleTarget = staleRows[2];
+      if (!staleTarget) throw new Error("Missing folded reply row");
+      resize?.([{
+        target: staleTarget, contentRect: new DOMRect(0, 0, 800, 48),
+        borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [],
+      }], {} as ResizeObserver);
+      expect(layout.offsetFor(4)).toBe(940);
+    } finally {
+      list.destroy();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("mounts a bounded window and fully cleans up", () => {
     const container = document.createElement("div");
     Object.defineProperty(container, "clientHeight", { value: 800 });

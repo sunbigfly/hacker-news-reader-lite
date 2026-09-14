@@ -146,6 +146,7 @@ export class ReaderView {
   #locateFocusGeneration = 0;
   #commentAnchorFrame: number | null = null;
   #commentAnchorGeneration = 0;
+  readonly #replyExpansionAnchors = new Map<CommentId, { firstId: CommentId; insetPx: number }>();
   #locatedCommentPinId: CommentId | null = null;
   #locatedCommentPinInsetPx = 0;
   #locatedCommentPinFrame: number | null = null;
@@ -449,6 +450,7 @@ export class ReaderView {
       if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
       this.#commentAnchorFrame = null;
       this.#releaseLocatedCommentPin();
+      this.#replyExpansionAnchors.clear();
       this.#clearLocatedCommentFlash();
       this.#removeSummarySurface(false);
     });
@@ -2361,13 +2363,26 @@ export class ReaderView {
       const parentId = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
       const firstId = Number.parseInt(actionElement.dataset.firstReplyId ?? "", 10) as CommentId;
       const anchorTop = actionElement.getBoundingClientRect().top;
+      if (!this.#replyExpansionAnchors.has(parentId)) {
+        this.#replyExpansionAnchors.set(parentId, {
+          firstId, insetPx: anchorTop - this.#commentViewport.getBoundingClientRect().top,
+        });
+      }
       this.#keepCommentAnchor(firstId, anchorTop, () => this.actions.onReplyAction?.(parentId, "expand"));
       this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${firstId}"]`)?.focus({ preventScroll: true });
     }
     if (action === "collapse-replies" && actionElement.dataset.commentId) {
       const id = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
-      this.#toggleCommentStable(id, () => this.actions.onReplyAction?.(id, "collapse"));
-      this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
+      const saved = this.#replyExpansionAnchors.get(id);
+      if (saved) {
+        this.#replyExpansionAnchors.delete(id);
+        this.#keepCommentAnchor(saved.firstId, this.#commentViewport.getBoundingClientRect().top + saved.insetPx,
+          () => this.actions.onReplyAction?.(id, "collapse"));
+        this.#shadow.querySelector<HTMLElement>(`.hnr-replies-button[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
+      } else {
+        this.#toggleCommentStable(id, () => this.actions.onReplyAction?.(id, "collapse"));
+        this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
+      }
     }
   }
 
@@ -2555,7 +2570,7 @@ export class ReaderView {
     if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
     this.#commentAnchorFrame = null;
     this.#releaseLocatedCommentPin();
-    const selector = `:is(.hnr-comment, .hnr-missing)[data-comment-id="${id}"]`;
+    const selector = this.#commentAnchorSelector(id);
     if (anchorTop !== undefined) {
       this.#pinLocatedComment(id, anchorTop - this.#commentViewport.getBoundingClientRect().top);
     }
@@ -2587,6 +2602,10 @@ export class ReaderView {
     if (!target) return;
     const delta = target.getBoundingClientRect().top - anchorTop;
     if (Math.abs(delta) > 0.5) this.#commentViewport.scrollTop += delta;
+  }
+
+  #commentAnchorSelector(id: CommentId): string {
+    return `:is(.hnr-comment, .hnr-missing)[data-comment-id="${id}"], .hnr-replies-button[data-first-reply-id="${id}"]`;
   }
 
   #focusComment(id: CommentId, flash = false): boolean {
@@ -2696,7 +2715,7 @@ export class ReaderView {
     this.#locatedCommentPinFrame = view.requestAnimationFrame(() => {
       this.#locatedCommentPinFrame = null;
       if (this.#scope.destroyed || this.#locatedCommentPinId !== id) return;
-      const selector = `:is(.hnr-comment, .hnr-missing)[data-comment-id="${id}"]`;
+      const selector = this.#commentAnchorSelector(id);
       let row = this.#shadow.querySelector<HTMLElement>(selector);
       if (!row) {
         const index = this.#visibleEntries.findIndex((entry) => entry.id === id);

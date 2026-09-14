@@ -197,6 +197,43 @@ describe("smart reply controls", () => {
     expect(root.querySelector(".hnr-replies-button")?.textContent).toBe("展开 45 条回复");
   });
 
+  it("keeps the second-level expansion point after collapsing and reopening the same branch", async () => {
+    const children = Array.from({ length: 21 }, (_, index) => index + 4);
+    const tree = new CommentTree(story, [comment(2, 1, [3]), comment(3, 2, children), ...children.map((id) => comment(id, 3))]);
+    const { view, projection } = render(tree);
+    const viewport = element(view.surfaceRoot, ".hnr-comments");
+    let layoutShift = 0;
+    const rect = (top: number, height: number): DOMRect => ({
+      x: 0, y: top, top, right: 800, bottom: top + height, left: 0,
+      width: 800, height, toJSON: () => ({}),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this === viewport) return rect(100, 500);
+      if (this.dataset.action === "expand-replies") return rect((this.dataset.commentId === "2" ? 660 : 900 + layoutShift) - viewport.scrollTop, 40);
+      if (this.dataset.commentId === "3") return rect(660 - viewport.scrollTop, 112);
+      if (this.dataset.commentId === "4") return rect(900 + layoutShift - viewport.scrollTop, 112);
+      return rect(0, 0);
+    });
+    viewport.scrollTop = 300;
+    element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="2"]').click();
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      viewport.scrollTop = 900 + layoutShift - 420;
+      element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="3"]').click();
+      const childTop = () => element(view.surfaceRoot, '.hnr-comment[data-comment-id="4"]').getBoundingClientRect().top;
+      expect(childTop()).toBe(420);
+      layoutShift += 170;
+      view.update(tree, projection, true);
+      await vi.waitFor(() => expect(childTop()).toBe(420));
+      viewport.dispatchEvent(new WheelEvent("wheel"));
+      viewport.scrollTop += 90;
+      element(view.surfaceRoot, '[data-action="collapse-replies"][data-comment-id="3"]').click();
+      expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="4"]')).toBeNull();
+      expect(element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="3"]').getBoundingClientRect().top).toBe(420);
+    }
+    element(view.surfaceRoot, '[data-action="collapse-replies"][data-comment-id="2"]').click();
+    expect(element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="2"]').getBoundingClientRect().top).toBe(360);
+  });
+
   it("saves the selected mode and custom limits while disabled smart fields retain their values", () => {
     const { view } = render();
     const onSave = vi.fn();
