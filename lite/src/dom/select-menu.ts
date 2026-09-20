@@ -73,6 +73,44 @@ export function installSelectMenus(root: HTMLElement | ShadowRoot): {
       }
     }
   };
+  // A `position: fixed` element resolves against its containing block, which is
+  // the viewport only when no ancestor establishes one. The reader workspace
+  // uses `contain: paint`, so the popup is offset by that element's own origin.
+  // Measure the real origin by parking the popup at 0,0 before placing it.
+  const containingOrigin = (): { left: number; top: number } => {
+    if (!menu) return { left: 0, top: 0 };
+    const previousLeft = menu.style.left;
+    const previousTop = menu.style.top;
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    const box = menu.getBoundingClientRect();
+    menu.style.left = previousLeft;
+    menu.style.top = previousTop;
+    if (!Number.isFinite(box.left) || !Number.isFinite(box.top)) return { left: 0, top: 0 };
+    return { left: box.left, top: box.top };
+  };
+  const place = (select: HTMLSelectElement, control: { button: HTMLButtonElement }): void => {
+    if (!menu) return;
+    const rect = control.button.getBoundingClientRect();
+    const origin = containingOrigin();
+    const viewport = view.visualViewport;
+    const leftEdge = (viewport?.offsetLeft ?? 0) - origin.left;
+    const topEdge = (viewport?.offsetTop ?? 0) - origin.top;
+    const width = viewport?.width ?? view.innerWidth;
+    const height = viewport?.height ?? view.innerHeight;
+    const anchorLeft = rect.left - origin.left;
+    const anchorTop = rect.top - origin.top;
+    const anchorBottom = rect.bottom - origin.top;
+    const menuWidth = Math.max(0, Math.min(Math.max(rect.width, 160), width - 16));
+    const below = topEdge + height - anchorBottom - 12;
+    const above = anchorTop - topEdge - 12;
+    const upwards = below < Math.min(220, select.options.length * 44) && above > below;
+    const maxHeight = Math.max(44, Math.min(320, upwards ? above : below));
+    menu.style.width = `${menuWidth}px`;
+    menu.style.maxHeight = `${maxHeight}px`;
+    menu.style.left = `${Math.max(leftEdge + 8, Math.min(anchorLeft, leftEdge + width - menuWidth - 8))}px`;
+    menu.style.top = `${upwards ? Math.max(topEdge + 8, anchorTop - Math.min(menu.scrollHeight, maxHeight) - 4) : anchorBottom + 4}px`;
+  };
   const open = (select: HTMLSelectElement): void => {
     const control = controls.get(select);
     if (select.disabled || !control) return;
@@ -99,21 +137,7 @@ export function installSelectMenus(root: HTMLElement | ShadowRoot): {
       menu.append(item);
     }
     portal.append(menu);
-    const rect = control.button.getBoundingClientRect();
-    const viewport = view.visualViewport;
-    const leftEdge = viewport?.offsetLeft ?? 0;
-    const topEdge = viewport?.offsetTop ?? 0;
-    const width = viewport?.width ?? view.innerWidth;
-    const height = viewport?.height ?? view.innerHeight;
-    const menuWidth = Math.max(0, Math.min(Math.max(rect.width, 160), width - 16));
-    const below = topEdge + height - rect.bottom - 12;
-    const above = rect.top - topEdge - 12;
-    const upwards = below < Math.min(220, select.options.length * 44) && above > below;
-    const maxHeight = Math.max(44, Math.min(320, upwards ? above : below));
-    menu.style.width = `${menuWidth}px`;
-    menu.style.maxHeight = `${maxHeight}px`;
-    menu.style.left = `${Math.max(leftEdge + 8, Math.min(rect.left, leftEdge + width - menuWidth - 8))}px`;
-    menu.style.top = `${upwards ? Math.max(topEdge + 8, rect.top - Math.min(menu.scrollHeight, maxHeight) - 4) : rect.bottom + 4}px`;
+    place(select, control);
     control.button.setAttribute("aria-expanded", "true");
     control.button.setAttribute("aria-controls", menu.id);
     control.button.focus({ preventScroll: true });
@@ -181,7 +205,25 @@ export function installSelectMenus(root: HTMLElement | ShadowRoot): {
       event.stopImmediatePropagation();
     }
   }, true);
-  listen(portal, "scroll", (event) => { if (menu && !menu.contains(event.target as Node)) close(); }, true);
+  listen(portal, "scroll", (event) => {
+    if (!menu) return;
+    const target = event.target;
+    // Scrolling the popup itself only moves its own option list.
+    if (target === menu || (target instanceof Node && menu.contains(target))) return;
+    // Scroll events do not bubble, so the target is the scrolling element.
+    // A mobile browser may scroll the settings surface to reveal the trigger
+    // immediately after the tap. Follow the trigger instead of closing the
+    // popup, and dismiss only once the trigger leaves the visual viewport.
+    const control = current ? controls.get(current) : null;
+    if (!control || !current) { close(); return; }
+    place(current, control);
+    const rect = control.button.getBoundingClientRect();
+    const viewport = view.visualViewport;
+    const top = viewport?.offsetTop ?? 0;
+    const height = viewport?.height ?? view.innerHeight;
+    const margin = 4;
+    if (rect.bottom < top + margin || rect.top > top + height - margin) close();
+  }, true);
   listen(view, "resize", () => { close(); });
   if (view.visualViewport) listen(view.visualViewport, "resize", () => { close(); });
   refresh();

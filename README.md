@@ -7,7 +7,7 @@
 
 在 Hacker News 原生页面内提供 Reddit 式评论树、按需翻译、AI 讨论总结与离线阅读，同时保留 HN 的速度、顺序和原生交互。
 
-[![Version](https://img.shields.io/badge/version-0.1.7-f97316?style=flat-square)](https://github.com/sunbigfly/hacker-news-reader-lite/releases)
+[![Version](https://img.shields.io/badge/version-0.1.8-f97316?style=flat-square)](https://github.com/sunbigfly/hacker-news-reader-lite/releases)
 [![Greasy Fork](https://img.shields.io/greasyfork/v/591844?style=flat-square&label=Greasy%20Fork&color=f97316)](https://greasyfork.org/scripts/591844-hacker-news-reader-lite)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Target](https://img.shields.io/badge/target-news.ycombinator.com-111827?style=flat-square)](https://news.ycombinator.com/)
@@ -35,7 +35,7 @@ Hacker News 已经足够快。Reader 不重建一个更重的客户端，而是�
 2. 点击 [从 Greasy Fork 安装 Hacker News Reader Lite](https://update.greasyfork.org/scripts/591844/Hacker%20News%20Reader%20Lite.user.js)。也可使用 [GitHub raw 构建](https://raw.githubusercontent.com/sunbigfly/hacker-news-reader-lite/main/dist/hacker-news-reader-lite.user.js)。
 3. 打开 [Hacker News](https://news.ycombinator.com/)，从故事卡片或 `reader` 入口进入阅读器。
 
-X 浏览器使用手动刷新获取新评论，避免其同步流读取接口阻塞页面；有限的 AI 流式响应在接收完成后显示。手机设置面板支持触摸下拉、输入和滚动。
+X 浏览器使用手动刷新获取新评论，避免其同步流读取接口阻塞页面；有限的 AI 流式响应在接收完成后显示。设置面板支持触摸下拉、输入和滚动；自定义下拉在分栏、面板滚动与手机可视视口变化时保持锚定。
 
 手机打开阅读器后，浏览器返回会关闭阅读器并保留宿主页面；背景滚动位置在阅读期间锁定，关闭后恢复。每个分支展开时独立记住按钮的位置，首条新回复保持在该位置，收起时展开按钮恢复到原来的高度；嵌套分支反复展开、收起也保留各自的位置记录。
 

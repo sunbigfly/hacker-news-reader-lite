@@ -117,3 +117,72 @@ it("reveals the active option by scrolling only the menu, without scrolling its 
   expect(menu.scrollTop).toBe(100);
   expect(root.querySelector(".hnr-select-menu")).toBe(menu);
 });
+
+it("keeps the popup open when the settings surface scrolls to reveal the trigger", () => {
+  const { root, form, button } = fixture();
+  // Tapping the trigger makes a mobile browser scroll the surrounding surface
+  // to reveal the focused control; that scroll must not dismiss the popup.
+  const surface = document.createElement("div");
+  surface.style.overflow = "auto";
+  form.before(surface);
+  surface.append(form);
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue({ left: 40, right: 340, top: 100, bottom: 144, width: 300, height: 44, x: 40, y: 100, toJSON: () => ({}) });
+  button.click();
+  const menu = required(root.querySelector<HTMLElement>(".hnr-select-menu"));
+  surface.dispatchEvent(new Event("scroll"));
+  expect(root.querySelector(".hnr-select-menu")).toBe(menu);
+});
+
+it("follows the trigger as its surface scrolls and closes once it leaves the viewport", () => {
+  const { root, form, button } = fixture();
+  const surface = document.createElement("div");
+  surface.style.overflow = "auto";
+  form.before(surface);
+  surface.append(form);
+  const rect = vi.spyOn(button, "getBoundingClientRect");
+  rect.mockReturnValue({ left: 40, right: 340, top: 100, bottom: 144, width: 300, height: 44, x: 40, y: 100, toJSON: () => ({}) });
+  button.click();
+  const menu = required(root.querySelector<HTMLElement>(".hnr-select-menu"));
+  expect(menu.style.top).toBe("148px");
+  rect.mockReturnValue({ left: 40, right: 340, top: 40, bottom: 84, width: 300, height: 44, x: 40, y: 40, toJSON: () => ({}) });
+  surface.dispatchEvent(new Event("scroll"));
+  expect(root.querySelector(".hnr-select-menu")).toBe(menu);
+  expect(menu.style.top).toBe("88px");
+  rect.mockReturnValue({ left: 40, right: 340, top: -200, bottom: -156, width: 300, height: 44, x: 40, y: -200, toJSON: () => ({}) });
+  surface.dispatchEvent(new Event("scroll"));
+  expect(root.querySelector(".hnr-select-menu")).toBeNull();
+});
+
+it("portals the popup as a sibling of the surface so no scroll container clips it", () => {
+  const { root, button } = fixture();
+  button.click();
+  const menu = required(root.querySelector<HTMLElement>(".hnr-select-menu"));
+  expect(menu.parentNode).toBe(root);
+  expect(menu.parentElement).toBeNull();
+});
+
+it("anchors beside the trigger when a contained reader workspace offsets fixed positioning", () => {
+  const { root, button } = fixture();
+  vi.stubGlobal("innerWidth", 1600);
+  vi.stubGlobal("innerHeight", 900);
+  const buttonRect = vi.spyOn(button, "getBoundingClientRect");
+  buttonRect.mockReturnValue({ left: 1210, right: 1510, top: 760, bottom: 804, width: 300, height: 44, x: 1210, y: 760, toJSON: () => ({}) });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element): DOMRect {
+    if (!this.classList.contains("hnr-select-menu")) {
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) };
+    }
+    const element = this as HTMLElement;
+    const left = 900 + (Number.parseFloat(element.style.left) || 0);
+    const top = 100 + (Number.parseFloat(element.style.top) || 0);
+    return { left, right: left, top, bottom: top, width: 0, height: 0, x: left, y: top, toJSON: () => ({}) };
+  });
+  vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(120);
+  button.click();
+  const menu = required(root.querySelector<HTMLElement>(".hnr-select-menu"));
+  // The workspace starts at viewport (900,100), so viewport trigger coordinates
+  // must be converted to workspace-local CSS coordinates before assignment.
+  expect(menu.style.left).toBe("310px");
+  expect(menu.style.top).toBe("536px");
+  expect(900 + Number.parseFloat(menu.style.left)).toBe(1210);
+  expect(100 + Number.parseFloat(menu.style.top) + 120 + 4).toBe(760);
+});
