@@ -26,6 +26,13 @@ import type {
   SummaryLength,
 } from "../summary/summary-service";
 import { READER_TRANSLATION_THEMES, type ReaderTranslationTheme } from "../translation/translation-presentation";
+import { VocabularySection } from "../vocabulary/comment-vocabulary";
+import { VocabularyHighlights } from "../vocabulary/highlights";
+import type { VocabularyWord } from "../vocabulary/model";
+import { showWordPopup } from "../vocabulary/word-popup";
+import type { WordLookupService } from "../vocabulary/lookup";
+import { WordbookPanel } from "../vocabulary/wordbook-panel";
+import type { SavedWord } from "../vocabulary/wordbook";
 import {
   createBrowserLocalFontQuery,
   LocalFontPicker,
@@ -41,9 +48,9 @@ import {
   type TranslationDisplayMode,
 } from "../settings/settings-store";
 
-export type ReaderCommand = "refresh" | "translate" | "summary" | "offline" | "history" | "article" | "settings";
+export type ReaderCommand = "refresh" | "translate" | "summary" | "offline" | "history" | "article" | "vocabulary" | "settings";
 export type ReaderCommentAction = "copy-link" | "translate-comment" | "summarize-branch" | "reply";
-export type ReaderWorkbenchTab = "insight" | "summary-history" | "downloads" | "browsing-history";
+export type ReaderWorkbenchTab = "insight" | "summary-history" | "downloads" | "browsing-history" | "wordbook";
 export type ReaderRealtimeState = "connecting" | "connected" | "reconnecting" | "unavailable";
 const VIEWPORT_TRANSLATION_STABILIZE_MS = 120;
 const NEW_COMMENT_HIGHLIGHT_MS = 5_000;
@@ -60,6 +67,7 @@ const COMMAND_DEFINITIONS: ReadonlyArray<readonly [ReaderCommand, string, readon
   ["offline", "下载离线 HTML", ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m7 10 5 5 5-5", "M12 15V3"]],
   ["history", "浏览历史", ["M3 12a9 9 0 1 0 3-6.7", "M3 3v6h6", "M12 7v5l3 2"]],
   ["article", "在新标签打开外链", ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"]],
+  ["vocabulary", "打开单词本", ["M4 19.5A2.5 2.5 0 0 1 6.5 17H20", "M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z", "M9.5 7.5h7"]],
   ["settings", "阅读设置", ["M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z", "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"]],
 ];
 
@@ -101,6 +109,70 @@ function tooltipElement(document: Document, label: string, id: string): HTMLElem
   tooltip.setAttribute("role", "tooltip");
   return tooltip;
 }
+export interface ReaderVocabularyBinding {
+  readonly words: readonly VocabularyWord[];
+  readonly error?: string | undefined;
+}
+
+interface VocabularyMount {
+  /** The comment body, not one of its copies: which copy is visible depends on the translation mode. */
+  readonly body: HTMLElement;
+  readonly section: VocabularySection;
+  readonly highlights: VocabularyHighlights;
+  /** Null until the first binding is applied, so a recycled row always repaints exactly once. */
+  appliedIdentity: string | null;
+}
+
+/**
+ * Every copy of the English text the reader currently shows. In original mode that is the single
+ * `.hnr-original-text`; in bilingual mode the original element is hidden and the shown copy is what the
+ * translation built instead, which is a different set of nodes. That copy holds **one original section
+ * per paragraph** of the comment, so all of them have to be inked, not just the first. Translated-only
+ * mode shows no English at all, so there is nothing to ink.
+ */
+function vocabularyInkRoots(body: HTMLElement): readonly HTMLElement[] {
+  // Direct children are matched by class rather than with `:scope >`: this query runs inside a shadow
+  // tree, where `:scope` is not dependable across engines.
+  const visibleChild = (name: string): HTMLElement | undefined => [...body.children].find(
+    (element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains(name) && !element.hidden,
+  );
+  const original = visibleChild("hnr-original-text");
+  if (original) return Object.freeze([original]);
+  const bilingual = visibleChild("hnr-bilingual-text");
+  return bilingual
+    ? Object.freeze([...bilingual.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section")])
+    : Object.freeze([]);
+}
+
+function vocabularyBindingIdentity(binding: ReaderVocabularyBinding): string {
+  return `${binding.error ?? ""}|${binding.words.map((word) => word.word).join(",")}`;
+}
+
+export interface ReaderWordbookQuery {
+  readonly words: () => readonly SavedWord[];
+  readonly onRemove: (word: string) => void;
+  readonly onOpenSource: (entry: SavedWord) => void;
+  /** The session's public-dictionary lookups; the panel only calls them for an opened word. */
+  readonly lookup: WordLookupService;
+}
+
+export interface ReaderVocabularyHost {
+  /** Called when a comment row mounts its vocabulary section, so the caller can start collecting. */
+  readonly onCreate: (id: CommentId) => void;
+  /** Runs after the section is dropped, so per-comment requests can be released. */
+  readonly onDestroy: (id: CommentId) => void;
+}
+
+
+export interface ReaderVocabularyActions {
+  /** Returns the cached state for a comment; an empty list still hides the section. */
+  readonly onRequest: (id: CommentId) => ReaderVocabularyBinding | undefined;
+  readonly onSaved?: (() => void) | undefined;
+  readonly onOpenWordbook: () => void;
+  readonly onRemoveWord?: ((word: string) => void) | undefined;
+  readonly onOpenSource?: ((entry: SavedWord) => void) | undefined;
+}
+
 export interface ReaderViewActions {
   readonly onClose: () => void;
   readonly onCommand: (command: ReaderCommand) => void;
@@ -109,6 +181,7 @@ export interface ReaderViewActions {
   readonly onToggleComment: (id: CommentId) => void;
   readonly onReplyAction?: (id: CommentId, action: "expand" | "collapse") => void;
   readonly onLoadMissing: (id: CommentId) => void;
+  readonly onVocabularyHost?: ((id: CommentId, mounted: boolean) => void) | undefined;
 }
 
 export class ReaderView {
@@ -164,6 +237,12 @@ export class ReaderView {
   #summaryActiveId: string | null = null;
   #translationEnabled = false;
   #translationMode: TranslationDisplayMode = "original";
+  #vocabularyEnabled = false;
+  #vocabularyActions: ReaderVocabularyActions | null = null;
+  readonly #vocabularySections = new Map<CommentId, VocabularyMount>();
+  readonly #vocabularyExpanded = new Set<CommentId>();
+  #wordbookPanel: WordbookPanel | null = null;
+  #wordbookQuery: ReaderWordbookQuery | null = null;
   #focusedCommentId: CommentId | null = null;
   #preheated = new Map<CommentId, PreheatedComment>();
   #visibleEntries: readonly VisibleEntry[] = [];
@@ -330,6 +409,9 @@ export class ReaderView {
           ? measuredIds
           : viewportEntries.filter((entry) => entry.kind === "comment").map((entry) => entry.id);
         this.#viewportCommentIds = Object.freeze(ids);
+        for (const [id, mounted] of [...this.#vocabularySections]) {
+          if (!mounted.section.root.isConnected) this.#dropVocabulary(id);
+        }
         this.#startNewCommentHighlightTimers(ids);
         const identity = ids.join(",");
         if (identity === this.#reportedViewportIdentity) {
@@ -621,6 +703,194 @@ export class ReaderView {
     this.#scheduleHeaderTitleFit();
   }
 
+  /**
+   * Rebuilds every mounted vocabulary section from the caller's latest state. Comment rows are
+   * recycled by the virtual list, so this is the only place that decides what a row shows.
+   */
+  setVocabularyEnabled(enabled: boolean): void {
+    this.#vocabularyEnabled = enabled;
+    const button = this.#shadow.querySelector<HTMLButtonElement>('[data-command="vocabulary"]');
+    if (button) button.dataset.active = String(enabled);
+    if (!enabled) {
+      this.clearVocabulary();
+      return;
+    }
+    this.refreshVocabulary();
+  }
+
+  setVocabularyActions(actions: ReaderVocabularyActions): void {
+    this.#vocabularyActions = actions;
+  }
+
+  /** The wordbook pane reads the live collection through the caller instead of caching a copy. */
+  setWordbookQuery(query: ReaderWordbookQuery | null): void {
+    this.#wordbookQuery = query;
+    this.#wordbookPanel?.setWords(query?.words() ?? Object.freeze([]));
+  }
+
+  wordbookWordCount(): number {
+    return this.#wordbookQuery?.words().length ?? 0;
+  }
+
+  refreshWordbook(): void {
+    const words = this.#wordbookQuery?.words() ?? Object.freeze([]);
+    this.#wordbookPanel?.setWords(words);
+    const tab = this.#shadow.querySelector<HTMLButtonElement>('[data-summary-tab="wordbook"]');
+    if (tab) tab.textContent = `单词本 ${words.length}`;
+    this.refreshVocabulary();
+  }
+
+  /** Reports the words shown for one comment, so newly arrived words can be merged in place. */
+  vocabularyWords(id: CommentId): readonly VocabularyWord[] {
+    return this.#vocabularySections.get(id)?.section.words ?? Object.freeze([]);
+  }
+
+  /** The mounted comment row for one comment; used by the local-build vocabulary diagnostics. */
+  mountedVocabularyRow(id: CommentId): HTMLElement | null {
+    return this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`);
+  }
+
+  /** Re-applies the current state to one comment without a full list rebuild. */
+  touchVocabulary(id: CommentId): void {
+    const mounted = this.#vocabularySections.get(id);
+    if (!mounted) return;
+    this.#applyVocabularyBinding(id, mounted);
+  }
+
+  /** Merges a freshly resolved answer into one mounted comment. */
+  applyVocabulary(id: CommentId, binding: ReaderVocabularyBinding): void {
+    const mounted = this.#vocabularySections.get(id);
+    if (!mounted) return;
+    const identity = vocabularyBindingIdentity(binding);
+    if (mounted.appliedIdentity === identity) return;
+    mounted.appliedIdentity = identity;
+    mounted.highlights.clear();
+    if (binding.error) {
+      mounted.section.setError(binding.error);
+      return;
+    }
+    mounted.section.setWords(binding.words);
+    this.#inkVocabulary(mounted, binding.words);
+  }
+
+  /** Re-renders mounted rows through the virtual list so every section reflects new state. */
+  refreshVocabulary(): void {
+    if (!this.#vocabularyEnabled) return;
+    this.#virtualList.refreshNow();
+  }
+
+  clearVocabulary(): void {
+    for (const id of [...this.#vocabularySections.keys()]) this.#dropVocabulary(id);
+  }
+
+  #mountVocabulary(id: CommentId, host: HTMLElement, body: HTMLElement): void {
+    const actions = this.#vocabularyActions;
+    if (!actions) return;
+    const sourceUrl = this.#vocabularySourceUrl(id);
+    const section = new VocabularySection(host, {
+      sourceUrl,
+      onSaved: () => {
+        actions.onSaved?.();
+        this.refreshVocabulary();
+      },
+      onExpandChange: (expanded) => {
+        if (expanded) this.#vocabularyExpanded.add(id);
+        else this.#vocabularyExpanded.delete(id);
+      },
+      openWordPopup: this.#supportsWordPopup()
+        ? (anchor, word) => showWordPopup({ container: this.#commentViewport, anchor, word, sourceUrl })
+        : undefined,
+    });
+    const mount: VocabularyMount = {
+      body,
+      section,
+      highlights: new VocabularyHighlights((mark, word) => this.#bindVocabularyMark(mark, word, sourceUrl)),
+      appliedIdentity: null,
+    };
+    this.#vocabularySections.set(id, mount);
+    this.actions.onVocabularyHost?.(id, true);
+    this.#applyVocabularyBinding(id, mount);
+  }
+
+  #dropVocabulary(id: CommentId): void {
+    const mount = this.#vocabularySections.get(id);
+    if (!mount) return;
+    this.#vocabularySections.delete(id);
+    mount.highlights.clear();
+    mount.section.destroy();
+    this.actions.onVocabularyHost?.(id, false);
+  }
+
+  #applyVocabularyBinding(id: CommentId, mount: VocabularyMount): void {
+    const binding = this.#vocabularyEnabled ? this.#vocabularyActions?.onRequest(id) : undefined;
+    const identity = binding ? vocabularyBindingIdentity(binding) : "";
+    if (mount.appliedIdentity === identity) return;
+    mount.appliedIdentity = identity;
+    mount.highlights.clear();
+    if (!binding) {
+      mount.section.setWords(Object.freeze([]));
+      return;
+    }
+    if (binding.error) {
+      mount.section.setError(binding.error);
+      return;
+    }
+    mount.section.setWords(binding.words);
+    mount.section.setExpanded(this.#vocabularyExpanded.has(id));
+    // The words stay listed even when only the translation is on screen; only the ink has nowhere to go.
+    this.#inkVocabulary(mount, binding.words);
+  }
+
+  /** Re-inks one mounted comment against whatever copy of its text is visible right now. */
+  #inkVocabulary(mount: VocabularyMount, words: readonly VocabularyWord[]): void {
+    const roots = vocabularyInkRoots(mount.body);
+    if (roots.length > 0) mount.highlights.apply(roots, words);
+    else mount.highlights.clear();
+  }
+
+  /**
+   * A translation arriving, or the reader switching mode, rewrites the visible copy of the comment
+   * from scratch: the bilingual original section is rebuilt from the translation payload, so any ink
+   * the previous copy carried is gone. Re-resolve the target instead of trusting the last one.
+   */
+  #refreshVocabularyInk(id: CommentId): void {
+    const mount = this.#vocabularySections.get(id);
+    if (!mount) return;
+    const binding = this.#vocabularyEnabled ? this.#vocabularyActions?.onRequest(id) : undefined;
+    if (!binding?.words.length) return;
+    this.#inkVocabulary(mount, binding.words);
+  }
+
+  #bindVocabularyMark(mark: HTMLElement, word: VocabularyWord, sourceUrl: string): void {
+    if (!this.#supportsWordPopup()) return;
+    mark.tabIndex = 0;
+    let dismiss: (() => void) | undefined;
+    const close = (): void => {
+      dismiss?.();
+      dismiss = undefined;
+    };
+    const open = (): void => {
+      close();
+      dismiss = showWordPopup({ container: this.#commentViewport, anchor: mark, word, sourceUrl });
+    };
+    mark.addEventListener("pointerenter", open);
+    mark.addEventListener("focus", open);
+    mark.addEventListener("pointerleave", close);
+    mark.addEventListener("blur", close);
+  }
+
+  #supportsWordPopup(): boolean {
+    const view = this.document.defaultView;
+    if (!view) return false;
+    if (view.innerWidth <= 700) return false;
+    return typeof view.matchMedia !== "function" || view.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  }
+
+  /** The story parameter lets the wordbook jump back to the thread a word came from. */
+  #vocabularySourceUrl(id: CommentId): string {
+    return `https://news.ycombinator.com/item?id=${id}&story=${this.#tree.story.id}`;
+  }
+
   applySettings(settings: ReaderSettings): void {
     this.#host.dataset.theme = settings.theme;
     const navigator = this.document.defaultView?.navigator;
@@ -636,6 +906,7 @@ export class ReaderView {
     this.#host.dataset.translationTheme = settings.translationTheme;
     this.setTranslationEnabled(settings.translationEnabled);
     this.setTranslationMode(settings.translationMode);
+    this.setVocabularyEnabled(settings.vocabularyEnabled);
     this.#scheduleHeaderTitleFit();
   }
 
@@ -730,6 +1001,7 @@ export class ReaderView {
     translated.hidden = !translation || this.#translationMode !== "translated";
     bilingual.hidden = !translation || this.#translationMode !== "bilingual";
     original.hidden = Boolean(translation) && this.#translationMode !== "original";
+    this.#refreshVocabularyInk(id);
     const translateAction = row.querySelector<HTMLButtonElement>('[data-comment-action="translate-comment"]');
     if (translateAction) {
       const label = commentActionLabel("translate-comment", "翻译此评论", translation?.complete === true);
@@ -751,6 +1023,10 @@ export class ReaderView {
     return this.#summarySurface !== null;
   }
 
+  closeReaderWorkbench(): void {
+    this.#removeSummarySurface(false);
+  }
+
   openReaderWorkbench(
     summaryHistory: readonly DiscussionSummaryHistoryEntry[],
     downloadHistory: readonly OfflineDownloadHistoryEntry[],
@@ -761,6 +1037,8 @@ export class ReaderView {
       readonly onDownload: (entry: OfflineDownloadHistoryEntry) => void;
       readonly onDeleteDownload: (entry: OfflineDownloadHistoryEntry) => void;
       readonly onOpenTopic: (storyId: ReaderTopicHistoryEntry["storyId"]) => void;
+      readonly onRemoveWord?: ((word: string) => void) | undefined;
+      readonly onOpenWordSource?: ((entry: SavedWord) => void) | undefined;
     },
     initialTab: ReaderWorkbenchTab,
     initialEntry?: DiscussionSummaryHistoryEntry,
@@ -808,11 +1086,13 @@ export class ReaderView {
     const summaryHistoryTab = htmlElement(this.document, "button", "hnr-summary-tab", `总结历史 ${summaryHistory.length}`);
     const downloadsTab = htmlElement(this.document, "button", "hnr-summary-tab", `下载历史 ${downloadHistory.length}`);
     const browsingHistoryTab = htmlElement(this.document, "button", "hnr-summary-tab", `浏览历史 ${topicHistory.length}`);
+    const wordbookTab = htmlElement(this.document, "button", "hnr-summary-tab", `单词本 ${this.wordbookWordCount()}`);
     for (const [button, panel] of [
       [insightTab, "insight"],
       [summaryHistoryTab, "summary-history"],
       [downloadsTab, "downloads"],
       [browsingHistoryTab, "browsing-history"],
+      [wordbookTab, "wordbook"],
     ] as const) {
       button.type = "button";
       button.dataset.summaryTab = panel;
@@ -876,7 +1156,11 @@ export class ReaderView {
     browsingHistoryPane.dataset.summaryPane = "browsing-history";
     browsingHistoryPane.setAttribute("role", "tabpanel");
     browsingHistoryPane.hidden = true;
-    body.append(insightPane, historyPane, downloadsPane, browsingHistoryPane);
+    const wordbookPane = htmlElement(this.document, "section", "hnr-summary-pane hnr-wordbook-pane");
+    wordbookPane.dataset.summaryPane = "wordbook";
+    wordbookPane.setAttribute("role", "tabpanel");
+    wordbookPane.hidden = true;
+    body.append(insightPane, historyPane, downloadsPane, browsingHistoryPane, wordbookPane);
     surface.append(header, tabs, body);
     layer.append(surface);
     this.#shell.append(layer);
@@ -903,11 +1187,13 @@ export class ReaderView {
       historyPane.hidden = name !== "summary-history";
       downloadsPane.hidden = name !== "downloads";
       browsingHistoryPane.hidden = name !== "browsing-history";
+      wordbookPane.hidden = name !== "wordbook";
     };
     insightTab.addEventListener("click", () => selectPane("insight"));
     summaryHistoryTab.addEventListener("click", () => selectPane("summary-history"));
     downloadsTab.addEventListener("click", () => selectPane("downloads"));
     browsingHistoryTab.addEventListener("click", () => selectPane("browsing-history"));
+    wordbookTab.addEventListener("click", () => selectPane("wordbook"));
     controls.addEventListener("submit", (event) => {
       event.preventDefault();
       const chosenScope: DiscussionSummaryScope = scope.value === "branch" && this.#focusedCommentId
@@ -927,7 +1213,10 @@ export class ReaderView {
     this.#renderSummaryHistory(historyPane, summaryHistory, selectPane);
     this.#renderOfflineDownloads(downloadsPane, downloadHistory, offlineProgress ?? null);
     this.#renderTopicHistory(browsingHistoryPane, topicHistory, callbacks.onOpenTopic);
-    selectPane(initialTab);
+    this.#renderWordbook(wordbookPane, {
+      onRemoveWord: callbacks.onRemoveWord,
+      onOpenSource: callbacks.onOpenWordSource,
+    });    selectPane(initialTab);
     queueMicrotask(() => surface.focus());
   }
 
@@ -1118,6 +1407,28 @@ export class ReaderView {
     for (const item of items) list.append(htmlElement(this.document, "li", "", item));
     section.append(list);
     return section;
+  }
+
+  #renderWordbook(
+    container: HTMLElement,
+    callbacks: {
+      readonly onRemoveWord?: ((word: string) => void) | undefined;
+      readonly onOpenSource?: ((entry: SavedWord) => void) | undefined;
+    },
+  ): void {
+    container.replaceChildren();
+    if (!this.#wordbookQuery) {
+      container.append(htmlElement(this.document, "p", "hnr-wordbook-empty", "当前会话没有可用的单词本。"));
+      return;
+    }
+    const panel = htmlElement(this.document, "div", "hnr-wordbook-pane");
+    container.append(panel);
+    this.#wordbookPanel = new WordbookPanel(panel, {
+      onRemove: (word) => { callbacks.onRemoveWord?.(word); },
+      onOpenSource: (entry) => { callbacks.onOpenSource?.(entry); },
+      lookup: this.#wordbookQuery.lookup,
+    });
+    this.#wordbookPanel.setWords(this.#wordbookQuery.words());
   }
 
   #renderSummaryHistory(
@@ -1406,6 +1717,8 @@ export class ReaderView {
     this.#detachSummaryEscapeListener();
     this.#summarySelectMenus?.destroy();
     this.#summarySelectMenus = null;
+    this.#wordbookPanel?.destroy();
+    this.#wordbookPanel = null;
     this.#summarySurface?.remove();
     this.#summarySurface = null;
     this.#summaryOnSelect = null;
@@ -1656,6 +1969,13 @@ export class ReaderView {
       field("滚动预翻译", select("translationEnabled", settings.translationEnabled ? "on" : "off", [["on", "开启（持久化）"], ["off", "关闭"]])),
       translationThemeField,
     );
+    const vocabularyGroup = htmlElement(this.document, "fieldset", "hnr-settings-card hnr-vocabulary-settings");
+    vocabularyGroup.append(
+      htmlElement(this.document, "legend", "", "评论词汇"),
+      field("词汇整理", select("vocabularyEnabled", settings.vocabularyEnabled ? "on" : "off", [["on", "开启"], ["off", "关闭"]])),
+      field("难度下限", select("vocabularyLevels", settings.vocabularyLevels, [["cet6", "六级及以上"], ["cet6+", "仅六级以上"]])),
+      htmlElement(this.document, "p", "hnr-settings-description", "开启后，滚动到视野内的评论会交给自定义 AI 筛出难词，在正文下方展示并在原文中高亮；不配置 AI 时只显示失败提示，不影响翻译与阅读。"),
+    );
     const commentMode = select("commentDisplayMode", settings.commentDisplayMode, [
       ["smart", "智能收纳"], ["expanded", "全部展开"], ["roots", "仅主评论"],
     ]);
@@ -1677,7 +1997,7 @@ export class ReaderView {
     };
     commentMode.addEventListener("change", syncReplyControls);
     syncReplyControls();
-    panelHosts.get("reading")?.append(replyGroup, readingGroup);
+    panelHosts.get("reading")?.append(replyGroup, readingGroup, vocabularyGroup);
 
     const aiBaseUrl = textInput("aiBaseUrl", settings.ai.baseUrl);
     const aiApiKey = textInput("aiApiKey", settings.ai.apiKey, "password");
@@ -2045,6 +2365,8 @@ export class ReaderView {
           translationMode: data.get("mode"),
           translationTheme: data.get("translationTheme"),
           translationEnabled: data.get("translationEnabled") === "on",
+          vocabularyEnabled: data.get("vocabularyEnabled") === "on",
+          vocabularyLevels: data.get("vocabularyLevels"),
           theme: data.get("theme"),
           titleFontFamily: data.get("titleFontFamily"),
           titleCustomFontFamily: data.get("titleCustomFontFamily"),
@@ -2253,7 +2575,10 @@ export class ReaderView {
     translated.hidden = !translation || this.#translationMode !== "translated";
     bilingual.hidden = !translation || this.#translationMode !== "bilingual";
     original.hidden = Boolean(translation) && this.#translationMode !== "original";
-    body.append(original, translated, bilingual);
+    const vocabulary = htmlElement(this.document, "div", "hnr-vocabulary");
+    vocabulary.hidden = true;
+    body.append(original, translated, bilingual, vocabulary);
+    this.#mountVocabulary(entry.id, vocabulary, body);
     body.hidden = entry.collapsed;
     const commentActions = htmlElement(this.document, "div", "hnr-comment-actions");
     commentActions.setAttribute("aria-label", `评论 #${comment.id} 操作`);

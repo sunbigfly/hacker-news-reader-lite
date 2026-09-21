@@ -1,6 +1,6 @@
 ---
 name: develop-hackernews-reader
-description: 开发、修复、审查或优化 Hacker News Reader Lite TypeScript 油猴项目时使用；适用于 HN 评论树、DOM-first 与 API 补全、虚拟流、全帖本地预热、翻译、AI 总结、外链文章浮窗、离线 HTML、性能、lite/src、lite/styles 和本地构建等任务。
+description: "在 Hacker News Reader Lite 仓库开发、修复、审查或优化阅读器及本地构建时使用；提交、推送与发布使用 release-hackernews-reader，真实浏览器验收需明确授权。"
 ---
 
 # 开发 Hacker News Reader

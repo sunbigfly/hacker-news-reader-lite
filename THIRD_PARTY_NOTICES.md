@@ -21,3 +21,22 @@ avatar product.
 - Project: https://multiavatar.com/
 - Package: https://www.npmjs.com/package/@multiavatar/multiavatar/v/1.0.7
 - License: https://github.com/multiavatar/Multiavatar/blob/main/LICENSE
+
+## ECDICT
+
+The wordbook's offline English-Chinese entry, part-of-speech tags and word forms come from a
+snapshot of the ECDICT core vocabulary, embedded in the userscript as a gzipped payload
+(`lite/src/vocabulary/ecdict-data.ts`).
+
+- Project: https://github.com/skywind3000/ECDICT
+- License: MIT
+
+## Wiktionary and Tatoeba
+
+Wordbook lookups query these public endpoints on demand, from the reader's own browser, and only
+for a word the reader explicitly opens:
+
+- Wiktionary REST API, definitions for one word: https://en.wiktionary.org/api/rest_v1/
+  Content is available under CC BY-SA 4.0; the entry links back to its Wiktionary page.
+- Tatoeba API, bilingual example sentences: https://api.tatoeba.org/
+  Sentences are CC BY 2.0 FR; each example keeps its own attribution and license label.

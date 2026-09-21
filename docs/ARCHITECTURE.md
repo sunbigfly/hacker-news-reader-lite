@@ -50,6 +50,7 @@ lite/
     translation/     # Google/Microsoft/AI、分段、三态投影
     ai/              # OpenAI-compatible config/completion/cache
     summary/         # 讨论总结
+    vocabulary/      # 评论词汇：AI 收集、高亮、悬停词卡、收藏单词本
     offline/         # 单 HTML 序列化与离线 runtime
     settings/        # 极简翻译/AI/外观/清理配置
   styles/            # 按 shell/stream/settings 分层
@@ -227,6 +228,22 @@ ThreadSnapshot {
 - 讨论总结使用树感知 JSON，保留 item ID、父子关系、作者和文本。
 - 全帖与分支总结使用不同 scope identity，不串用缓存。
 
+### 8.4 评论词汇
+
+- 用户显式开启后才工作；开启即代表同意把进入视野的评论原文交给已配置 AI。
+- `VocabularyService` 是唯一请求入口：词汇身份 = 提示词版本 + 难度下限 + base URL + 模型 + 评论正文指纹，命中缓存直接返回，空结果缓存 60 秒。
+- 请求复用 `TranslationRuntime` 的 scheduler 与 `TranslationTaskManager`，因此并发、RPM/TPM、同 key 去重和 `interactive > visible > prefetch` 优先级与翻译共用一套；词汇不进翻译缓存，翻译也不进词汇缓存。
+- 只有 `ReaderView` 挂载并进入视野的评论才收集；`ReaderScope` 销毁会取消在途任务，关闭开关只清 DOM 与高亮、保留缓存。
+- 词汇按词筛选、示例与例句译文都由模型给出；`vocabulary/model.ts` 只接受原文中确实出现过、释义为中文、例句带译文的条目。
+- 高亮在评论原文的文本节点上插入 `<mark>`，停用时逐节点还原，不新增 MutationObserver、不轮询。
+- 笔刷不用 `data:` 背景图，而是内联 `<svg>` 子元素：HN 的 CSP 为 `img-src 'self' https://account.ycombinator.com`，任何 `data:` 图片都会被拒绝，参考实现的笔刷在宿主上永远画不出来。内联 SVG 属于 DOM 而不是待加载图片，因此不受该策略限制；`mark` 用 `isolation: isolate` 建立层叠上下文，负 z-index 的笔刷画在底色条之上、文字之下。样式表另有一条 band + underline 兜底规则，保证笔刷丢失时高亮仍可见。
+- 高亮目标不是固定的 `.hnr-original-text`，而是"当前可见的那份正文"：双语模式下原文元素被隐藏，读者看到的是译文渲染时生成的 original section，两者是完全不同的节点。因此每次译文落地或切换显示模式都重新解析目标并重新上墨；译文模式只显示中文时没有英文可标，单词区仍然列出单词。
+- 单词本存 GM Storage（`hn-reader:wordbook:v1`，上限 500 词），只做收藏与查看，不做间隔重复；"恢复默认设置"不删除已收藏单词。
+- 工作台"单词本"页是两级结构：一级为列表（搜索/排序/分页），二级为词条详情，详情替换列表而不是堆叠在下方。详情按来源分三个标签——离线英汉（ECDICT）、双语例句（Tatoeba）、英文详解（Wiktionary）——每个来源各自持有 slot，任一来源失败都不会清空其它来源。
+- `WordLookupService` 是词条详情的唯一请求入口，与 `VocabularyService` 分离：它只读取公开词典，不发送用户内容，走同一 `HttpClient` 与 scheduler，descriptor 为 `lane: translation`、`anonymous: true`，每来源 8 秒上限，结果只存会话内存（空结果 24 小时内不重复请求）。
+- `vocabulary/ecdict.ts` 的 ECDICT 快照以 base64 gzip 内联，首次打开词条时才用 `DecompressionStream` 解压，不在启动时解析。
+- 词条详情不新增 `@grant`/`@connect`：Wiktionary REST 与 Tatoeba 复用现有请求权限。
+
 ## 9. 外链导航
 
 1. 用户显式命令后，验证 URL 为公开 HTTP(S)，不含 userinfo，非 localhost、非私网/保留 IP。
@@ -250,6 +267,9 @@ ThreadSnapshot {
 | HN item | itemId + observed version | 30 天 |
 | Translation | provider/model + target + segment fingerprint | 30 天 |
 | Discussion summary | model + promptVersion + scope + thread fingerprint | 30 天 |
+| Comment vocabulary | promptVersion + level choice + baseUrl + model + comment fingerprint | 30 天（空结果 60 秒） |
+| Wordbook | 单词（大小写无关去重），上限 500 | 用户移除前 |
+| Word lookup（Wiktionary / Tatoeba） | 单词 + 来源 | 会话内存（空结果 24 小时不重试） |
 | Offline HTML | storyId + document fingerprint | 30 天，最多 20 份 |
 | Settings | schemaVersion | 用户重置前 |
 | Workspace state | readerRatio + lastActiveStoryId | 用户覆盖前 |
@@ -275,6 +295,7 @@ UserscriptScope
   +-- ReaderScope (open -> close)
       +-- ThreadScope (story switch)
       +-- Translation tasks
+      +-- Vocabulary tasks
       +-- Summary task
       +-- Offline serialization task
 ```
@@ -290,3 +311,5 @@ UserscriptScope
 - `docs/adr/0005-in-page-article-extraction.md`
 - `docs/adr/0006-native-external-tabs.md`
 - `docs/adr/0007-host-card-list-entry.md`
+- `docs/adr/0008-persistent-host-pane-navigation.md`
+- `docs/adr/0009-ai-vocabulary-in-viewport.md`

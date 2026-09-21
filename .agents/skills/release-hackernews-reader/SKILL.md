@@ -1,6 +1,6 @@
 ---
 name: release-hackernews-reader
-description: 验证、构建、提交、推送或发布 Hacker News Reader Lite 时使用；适用于版本升级、生产 userscript、Greasy Fork 发布、发布清单、构建哈希、提交同步和发布前性能安全门禁。
+description: "仅在用户明确要求提交、推送、同步或发布 Hacker News Reader Lite 时使用；按对应授权准备生产产物和发布证据，提交不自动授权推送或发布。普通本地构建使用 develop-hackernews-reader。"
 ---
 
 # 发布 Hacker News Reader

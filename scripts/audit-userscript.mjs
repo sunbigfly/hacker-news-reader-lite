@@ -53,23 +53,34 @@ for (const pattern of secretPatterns) {
     throw new Error(`source or production artifact contains a secret-like value: ${pattern.source}`);
   }
 }
-if (reuseManifest.schemaVersion !== 1 || !Array.isArray(reuseManifest.entries) || reuseManifest.entries.length < 1) {
+const reuseSchemaVersion = reuseManifest.schemaVersion;
+if (reuseSchemaVersion !== 1 || !Array.isArray(reuseManifest.entries) || reuseManifest.entries.length < 1) {
   throw new Error("reuse manifest schema is invalid or empty");
 }
-if (
-  typeof reuseManifest.source?.repository !== "string"
-  || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(reuseManifest.source.repository)
-  || typeof reuseManifest.source?.commit !== "string"
-  || !/^[0-9a-f]{40}$/.test(reuseManifest.source.commit)
-  || reuseManifest.source?.license !== "MIT"
-) {
-  throw new Error("reuse manifest source repository or commit is invalid");
+const GITHUB_REPOSITORY = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const knownRepositories = new Set();
+for (const [label, record] of [["source", reuseManifest.source], ["vocabularySource", reuseManifest.vocabularySource]]) {
+  if (record === undefined) continue;
+  if (
+    typeof record.repository !== "string"
+    || !GITHUB_REPOSITORY.test(record.repository)
+    || typeof record.commit !== "string"
+    || !/^[0-9a-f]{40}$/.test(record.commit)
+    || record.license !== "MIT"
+  ) {
+    throw new Error(`reuse manifest ${label} repository or commit is invalid`);
+  }
+  knownRepositories.add(record.repository);
 }
+if (knownRepositories.size === 0) throw new Error("reuse manifest declares no source repository");
 for (const entry of reuseManifest.entries) {
   const targetPath = path.join(root, entry.target);
   await readFile(targetPath);
   if (typeof entry.source !== "string" || !/^[0-9a-f]{64}$/.test(entry.sourceSha256)) {
     throw new Error(`reuse source record is invalid: ${entry.target}`);
+  }
+  if (entry.sourceRepository !== undefined && !knownRepositories.has(entry.sourceRepository)) {
+    throw new Error(`reuse entry names an undeclared source repository: ${entry.target}`);
   }
   if (!Array.isArray(entry.tests) || entry.tests.length < 1) throw new Error(`reuse entry has no tests: ${entry.target}`);
   for (const test of entry.tests) await readFile(path.join(root, test));

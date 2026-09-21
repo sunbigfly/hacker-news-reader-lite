@@ -4,6 +4,8 @@
 
 历史参考源为 `https://github.com/sunbigfly/awesome-linuxdo-reader`。源项目使用 MIT License，本项目保留必要归属；固定 commit 与逐文件 SHA-256 记录在 `reuse-manifest.json`。
 
+评论词汇整理 owner 的第二参考源为 `https://github.com/sunbigfly/forum-translater`（同为 MIT）。它的固定 commit 与逐文件 SHA-256 记录在同一 manifest 的 `vocabularySource`，相关条目用 `sourceRepository` 指明来源，`scripts/audit-userscript.mjs` 会拒绝未声明的来源仓库。
+
 这些记录仅用于说明早期代码来源。Hacker News Reader 是独立项目，不读取参考仓库的活动工作树，不保留跨仓库运行时或构建依赖，复制后的源码、测试和发布产物均由本仓库独立拥有。
 
 复用的单位是“owner + 最小依赖闭包 + 对应测试”，不是散落函数，也不是整仓复制。每个批次必须分为：
@@ -48,6 +50,24 @@
 | `lite/src/post/reader-topic-custom-summary.ts` | 树感知 payload、范围、上下文预算、真实节点引用 | Discourse Topic/Post 替换为 HN Story/Comment；移除图像、分享卡 | `summary/discussion-summary-service.ts` |
 | `lite/src/archive/reader-topic-offline-document.ts` | 安全 JSON 序列化、搜索、折叠、虚拟窗口、单 HTML runtime | Discourse schema、reaction/quote/archive manager 换为 HN Story/Comment；删除重型管理界面 | `offline/offline-document.ts` |
 
+### 3.1 词汇整理批次（源：`forum-translater`）
+
+| 源 owner | 保留 | 必须替换/删除 | 目标 owner | 对应测试 |
+| --- | --- | --- | --- | --- |
+| `src/vocabulary.ts`（`VocabularyWord` 校验与 `normalizeVocabulary`） | 逐字段校验、原文命中过滤、6 词上限 | 删除 `level: "固定CET6"` 归一、`translatedTerm` 译文匹配、流式 `onPartial` | `vocabulary/model.ts` | `lite/tests/vocabulary-model.test.ts` |
+| `src/vocabulary.ts`（`collectVocabulary`） | 提示词版本入缓存身份、同 key 请求去重、空结果短期缓存 | GM `GM_getValue` 词汇缓存换为 `CacheRepository`；`TranslationTaskManager` 换为 HN 的任务管理器与配额；Responses SSE 与 `caching` 调度回调删除 | `vocabulary/service.ts` | `lite/tests/vocabulary-service.test.ts` |
+| `src/vocabulary-prompt.ts` | 资料而非指令的注入防护、字段契约、难度下限、宁缺毋滥 | 删除 `translation`/`memoryExample`/`memoryTerm`（本产品不做单词卡记忆链） | `vocabulary/prompt.ts` | `lite/tests/vocabulary-prompt.test.ts` |
+| `src/vocabulary-highlights.ts` | 墨迹下划线轮转、词边界正则、文本节点级标记与完整还原、双笔画笔刷形状 | 删除译文高亮与 `data-ft-*` 标记；词卡回调交出 `() => void` 释放器；**笔刷改画为内联 `<svg>` 子元素**：HN 的 CSP 为 `img-src 'self' https://account.ycombinator.com`，参考实现的 `data:` 背景图被浏览器拒绝，在宿主上永远不可见 | `vocabulary/highlights.ts` | `lite/tests/vocabulary-highlights.test.ts`、`lite/tests/vocabulary-ink-style.test.ts` |
+| `src/vocabulary-ui.ts`（`soundButton`/`wordDetails`/`showWordPopup`） | 朗读与悬停卡片交互、节流关闭、Escape/滚动关闭 | 浮窗宿主从 `document.body` 移入 Reader Shadow DOM；删除例句按需翻译与 `service.worker` 调度 | `vocabulary/word-popup.ts` | `lite/tests/vocabulary-section.test.ts` |
+| `src/vocabulary-ui.ts`（`mountVocabulary`） | 每词一行、≤3 词折叠、收藏按钮、朗读按钮 | 删除流式卡片重绘、IntersectionObserver 任务晋升、译文 MutationObserver；由 HN 虚拟列表的行生命周期承载 | `vocabulary/comment-vocabulary.ts` | `lite/tests/vocabulary-section.test.ts` |
+| `src/wordbook.ts`（GM 单词本读写） | 去重、非法条目回落、写入失败提示 | 删除 `due`/`stage`/`reviewWord` 间隔重复；存储键改为 `hn-reader:wordbook:v1`，上限 1000 → 500 | `vocabulary/wordbook.ts` | `lite/tests/vocabulary-wordbook.test.ts` |
+| `src/wordbook.ts`（`mountWordbook`） | 搜索/排序/分页、详情视图、来源跳转、朗读 | 删除 `#ft-wordbook` 站点样式与 `due` 复习排序；详情改为工作台内的二级页面 | `vocabulary/wordbook-panel.ts` | `lite/tests/vocabulary-wordbook-panel.test.ts` |
+| `src/wordbook.ts`（`loadDictionary`/`loadExamples`） | Wiktionary REST 与 Tatoeba 双语例句的取用、结果形状、来源归属 | `GM_xmlhttpRequest` 与 `wordbook-cache` GM 缓存换为 HN `HttpClient` descriptor（`lane: translation`、`anonymous: true`），响应缓存换为会话内 Map；删除 `opencc-js` 繁简转换与评分/复习字段 | `vocabulary/lookup.ts` | `lite/tests/vocabulary-lookup.test.ts` |
+| `src/wordbook-ecdict.ts` | 标签与词形码到中文标签的映射、按词查表 | 数据改为 gzip + `DecompressionStream` 惰性解压；导出改为冻结只读类型 | `vocabulary/ecdict.ts` | `lite/tests/vocabulary-ecdict.test.ts` |
+| `src/wordbook-ecdict-data.ts` | ECDICT 精简快照（base64 gzip） | 原样复制，仅改名 | `vocabulary/ecdict-data.ts` | `lite/tests/vocabulary-ecdict.test.ts` |
+
+刻意不复制：`src/vocabulary-stream.ts`（Responses SSE 解码由 HN 的 `AiCompletionClient` 承担）、`src/translation/combined-vocabulary.ts`（翻译与词汇合包会扩大翻译改动面）、`src/wordbook-cache.ts`（HN 的 `CacheRepository` 已覆盖同一职责）、`src/wordbook-chinese.ts`（Tatoeba 直接返回目标简体译文，不需要 `opencc-js`）。
+
 ## 4. C 级：不复制
 
 | 源域 | 原因 |
@@ -70,6 +90,7 @@
 - `article/article-fetch-adapter.ts`：匿名 GM HTTP、URL 安全策略、响应大小/类型限制。
 - `article/article-extractor.ts`：惰性 DOM 主体提取与允许列表清洗。
 - `userscript/main.ts`：仅组合 HN 入口和按需功能，不演变为大型服务定位器。
+- `vocabulary/service.ts`（视野编排部分）：`forum-translater` 用 IntersectionObserver 判断词区可见性并晋升任务；HN Reader 复用已有虚拟列表的挂载/视口事件，因此不存在对应的源 owner。
 
 ## 6. 复用批次验收模板
 

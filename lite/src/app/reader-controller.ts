@@ -31,6 +31,7 @@ import {
   ReaderView,
   type ReaderCommand,
   type ReaderCommentAction,
+  type ReaderVocabularyBinding,
   type ReaderWorkbenchTab,
 } from "../shell/reader-view";
 import { ReaderWorkspace } from "../shell/reader-workspace";
@@ -42,8 +43,7 @@ import {
   type ReaderTopicPosition,
   type ReaderTopicState,
 } from "../settings/reader-workspace-state-store";
-import { DEFAULT_SETTINGS, SettingsStore, type ReaderSettings, type ReaderTheme } from "../settings/settings-store";
-import {
+import { DEFAULT_SETTINGS, SettingsStore, type ReaderSettings, type ReaderTheme } from "../settings/settings-store";import {
   SummaryService,
   type CachedSummary,
   type DiscussionSummary,
@@ -68,6 +68,10 @@ import {
 } from "../thread/thread-snapshot-repository";
 import { type TranslationInput, type TranslationOutput } from "../translation/translation-service";
 import { TranslationRuntime } from "../translation/translation-runtime";
+import type { VocabularyWord } from "../vocabulary/model";
+import { WordLookupService } from "../vocabulary/lookup";
+import { VocabularyService, type VocabularyCacheEntry } from "../vocabulary/service";
+import { readWordbook, removeWord, type SavedWord } from "../vocabulary/wordbook";
 
 const OPTIMISTIC_COMMENT_LIMIT = 48;
 const TRANSLATION_PREFETCH_LIMIT = 120;
@@ -79,6 +83,25 @@ type ReaderHnApi = Pick<
   HnApiAdapter,
   "getItem" | "loadCommentSubtrees" | "loadThread" | "toComment" | "toStory"
 >;
+
+/** Wordbook entries point at an HN item URL; only that shape can be navigated back to. */
+function savedItemTarget(sourceUrl: string): { readonly comment: CommentId; readonly story: number | null } | undefined {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.hostname !== "news.ycombinator.com" || url.pathname !== "/item") return undefined;
+  const comment = Number.parseInt(url.searchParams.get("id") ?? "", 10);
+  if (!Number.isSafeInteger(comment) || comment <= 0) return undefined;
+  const rawStory = url.searchParams.get("story");
+  const parsedStory = rawStory === null ? Number.NaN : Number.parseInt(rawStory, 10);
+  return Object.freeze({
+    comment: commentId(comment),
+    story: Number.isSafeInteger(parsedStory) && parsedStory > 0 ? parsedStory : null,
+  });
+}
 
 function abortReason(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error("Reader 载入已取消");
@@ -150,6 +173,10 @@ class ReaderSession {
   readonly offlineCacheStore: IndexedDbCacheStore<CachedOfflineDownload>;
   readonly offlineCache: CacheRepository<CachedOfflineDownload>;
   readonly offlineHistory: OfflineHistoryRepository;
+  readonly vocabularyCacheStore: IndexedDbCacheStore<VocabularyCacheEntry>;
+  readonly vocabularyCache: CacheRepository<VocabularyCacheEntry>;
+  readonly vocabulary: VocabularyService;
+  readonly wordLookup: WordLookupService;
   readonly ai: AiCompletionClient;
   readonly api: ReaderHnApi;
   readonly tree: CommentTree;
@@ -177,6 +204,8 @@ class ReaderSession {
   #realtimeStarted = false;
   #lastDiscussionSummary: DiscussionSummary | null = null;
   #offlineProgress: OfflineDownloadProgress | null = null;
+  readonly #vocabularyStates = new Map<CommentId, ReaderVocabularyBinding>();
+  readonly #vocabularyRequested = new Set<CommentId>();
   #offlineHistoryEntries: readonly OfflineDownloadHistoryEntry[] = Object.freeze([]);
   #automaticTitleTranslationStarted = false;
   #viewportTranslationIdentity = "";
@@ -218,11 +247,21 @@ class ReaderSession {
     this.summaryCache = new CacheRepository(this.summaryCacheStore);
     this.offlineCacheStore = new IndexedDbCacheStore<CachedOfflineDownload>("hacker-news-reader-offline-downloads", "cache-v1");
     this.offlineCache = new CacheRepository(this.offlineCacheStore);
+    this.vocabularyCacheStore = new IndexedDbCacheStore<VocabularyCacheEntry>("hacker-news-reader-vocabulary", "cache-v1");
+    this.vocabularyCache = new CacheRepository(this.vocabularyCacheStore);
     this.offlineHistory = new OfflineHistoryRepository(this.offlineCache);
     const http = new GmHttpClient(this.scheduler);
     this.ai = new AiCompletionClient(http);
     this.api = api ?? new HnApiAdapter(http, this.hnCache);
     this.translationRuntime = translationRuntime ?? new TranslationRuntime(document, this.scope);
+    this.vocabulary = new VocabularyService({
+      cache: this.vocabularyCache,
+      tasks: this.translationRuntime.tasks,
+      ai: this.ai,
+      aiProfile: () => this.#settings.ai,
+      levels: () => this.#settings.vocabularyLevels,
+    });
+    this.wordLookup = new WordLookupService(http);
     this.summaries = new SummaryService(this.summaryCache, new ManagedAiCompletionClient(this.ai, this.translationRuntime.tasks));
     this.tree = new CommentTree(snapshot.story, snapshot.comments);
     this.onStoryTitleChange(this.tree.story.title);
@@ -263,12 +302,38 @@ class ReaderSession {
           }
         },
         onLoadMissing: (id) => { void this.#loadReplyItems([id]); },
+        onVocabularyHost: (id, mounted) => {
+          if (mounted) {
+            if (this.#settings.vocabularyEnabled) void this.#collectCommentVocabulary(id);
+          } else {
+            this.#vocabularyRequested.delete(id);
+          }
+        },
       },
       this.scope,
       css,
       mount,
     );
+    this.view.setVocabularyActions({
+      onRequest: (id) => {
+        const binding = this.#vocabularyStates.get(id);
+        if (binding) return binding;
+        if (this.#settings.vocabularyEnabled) void this.#collectCommentVocabulary(id);
+        return undefined;
+      },
+      onSaved: () => this.view.refreshWordbook(),
+      onOpenWordbook: () => { void this.openReaderWorkbench("wordbook"); },
+    });
     this.view.applySettings(this.#settings);
+    this.view.setWordbookQuery({
+      words: () => readWordbook(),
+      onRemove: (word) => {
+        removeWord(word);
+        this.view.refreshWordbook();
+      },
+      onOpenSource: (entry) => { this.#openWordSource(entry); },
+      lookup: this.wordLookup,
+    });
     this.#restorePendingTopicPosition();
     this.#persistTopicState();
     this.onThemeChange(this.#settings.theme);
@@ -284,6 +349,7 @@ class ReaderSession {
     this.scope.add(() => { void this.hnCacheStore.close(); });
     this.scope.add(() => { void this.summaryCacheStore.close(); });
     this.scope.add(() => { void this.offlineCacheStore.close(); });
+    this.scope.add(() => { void this.vocabularyCacheStore.close(); });
     this.scope.add(() => this.preheater.destroy());
     this.scope.add(() => this.#persistTopicState());
     this.scope.add(() => {
@@ -560,6 +626,7 @@ class ReaderSession {
       await this.downloadOffline();
     }
     else if (command === "history") await this.openReaderWorkbench("browsing-history");
+    else if (command === "vocabulary") await this.openReaderWorkbench("wordbook");
   }
 
   async #toggleTranslation(): Promise<void> {
@@ -745,6 +812,7 @@ class ReaderSession {
     this.view.openSettings(this.#settings, {
       onSave: (settings) => {
         const wasTranslationEnabled = this.#settings.translationEnabled;
+        const wasVocabularyEnabled = this.#settings.vocabularyEnabled;
         this.settingsStore.save(settings);
         this.#settings = settings;
         this.projection.configure(settings);
@@ -762,6 +830,7 @@ class ReaderSession {
           this.#stopAutomaticTranslation(new Error("自动翻译已关闭"));
         }
         this.view.setStatus("阅读设置已保存。", "success");
+        this.#applyVocabularySettings(wasVocabularyEnabled);
       },
       onLoadModels: (profile) => this.ai.listModels(profile, this.scope.abortController(new Error("Reader 已关闭")).signal),
       onThemePreview: (theme) => this.onThemeChange(theme),
@@ -772,12 +841,14 @@ class ReaderSession {
           this.translationRuntime.cache.clear(),
           this.summaryCache.clear(),
           this.offlineHistory.clear(),
+          this.vocabularyCache.clear(),
           this.onClearThreadCache(),
         ]);
       },
       onReset: () => {
         this.settingsStore.reset();
         this.#settings = DEFAULT_SETTINGS;
+        this.#resetVocabulary();
         this.projection.configure(this.#settings);
         this.view.update(this.tree, this.projection, this.#complete);
         this.view.applySettings(this.#settings);
@@ -835,7 +906,108 @@ class ReaderSession {
       onDownload: (entry) => { void this.#downloadSavedOffline(entry); },
       onDeleteDownload: (entry) => { void this.#deleteSavedOffline(entry); },
       onOpenTopic: (targetStoryId) => this.onOpenTopic(targetStoryId),
+      onRemoveWord: (word) => {
+        removeWord(word);
+        this.view.refreshWordbook();
+      },
+      onOpenWordSource: (entry) => { this.#openWordSource(entry); },
     }, initialTab, latest, this.#offlineProgress);
+  }
+
+  /** Turning the feature off drops every section and highlight, but keeps the cached answers. */
+  #applyVocabularySettings(wasEnabled: boolean): void {
+    this.view.setVocabularyEnabled(this.#settings.vocabularyEnabled);
+    if (!this.#settings.vocabularyEnabled) {
+      if (wasEnabled) this.view.setStatus("已关闭评论词汇；已生成的词汇缓存保留。", "success");
+      return;
+    }
+    for (const id of this.view.mountedCommentIds()) void this.#collectCommentVocabulary(id);
+  }
+
+  #resetVocabulary(): void {
+    this.#vocabularyStates.clear();
+    this.#vocabularyRequested.clear();
+    this.view.clearVocabulary();
+    this.view.setVocabularyEnabled(false);
+  }
+
+  /**
+   * Local builds report whether each collected word actually produced a highlight in the rendered
+   * comment. A word that yields no mark is either absent from the comment or lost between the model
+   * answer and the DOM, and that distinction is otherwise invisible from the outside.
+   */
+  #reportVocabularyDiagnostics(id: CommentId, words: readonly VocabularyWord[], source: string): void {
+    if (words.length === 0) return;
+    const row = this.view.mountedVocabularyRow(id);
+    const marked = new Set([...(row?.querySelectorAll<HTMLElement>("mark[data-vocabulary-ink]") ?? [])]
+      .map((mark) => mark.dataset.vocabularyWord ?? ""));
+    const report = words.map((word) => ({
+      word: word.word,
+      inSource: source.toLowerCase().includes(word.word),
+      highlighted: marked.has(word.word),
+    }));
+    // The two counts say which copy of the comment carries the ink: in bilingual mode the visible text
+    // is the section the translation built, not `.hnr-original-text`. `brush` is the inline SVG that
+    // replaces the reference's CSP-blocked data: background image.
+    const count = (selector: string): number => row?.querySelectorAll(selector).length ?? 0;
+    console.log(`[hn-reader] 评论 #${id} 词汇高亮`, {
+      rowMounted: row !== null,
+      marks: marked.size,
+      inkInOriginal: count(".hnr-original-text mark[data-vocabulary-ink]"),
+      inkInBilingual: count(".hnr-bilingual-original-section mark[data-vocabulary-ink]"),
+      brush: count("mark[data-vocabulary-ink] > svg.hnr-vocabulary-brush"),
+      report,
+    });
+  }
+
+  /** The build check must never throw, because every caller sits inside collection's try block. */
+  #isLocalBuild(): boolean {
+    try {
+      return typeof __HN_READER_BUILD__ === "string" && __HN_READER_BUILD__ === "local";
+    } catch {
+      return false;
+    }
+  }
+
+  async #collectCommentVocabulary(id: CommentId): Promise<void> {
+    if (this.scope.destroyed || !this.#settings.vocabularyEnabled || this.#vocabularyRequested.has(id)) return;
+    const comment = this.tree.get(id);
+    if (!comment) return;
+    this.#vocabularyRequested.add(id);
+    const source = this.preheater.get(id)?.translationText ?? comment.html;
+    const signal = this.scope.abortController(new Error("Reader 已关闭")).signal;
+    try {
+      const words = await this.vocabulary.collect(source, {
+        priority: this.view.viewportCommentIds().includes(id) ? "visible" : "prefetch",
+      });
+      if (this.scope.destroyed || !this.#settings.vocabularyEnabled) return;
+      const binding: ReaderVocabularyBinding = Object.freeze({ words });
+      this.#vocabularyStates.set(id, binding);
+      this.view.applyVocabulary(id, binding);
+      if (this.#isLocalBuild()) this.#reportVocabularyDiagnostics(id, words, source);
+    } catch (error) {
+      if (this.scope.destroyed || signal.aborted) return;
+      const binding: ReaderVocabularyBinding = Object.freeze({
+        words: Object.freeze<readonly VocabularyWord[]>([]),
+        error: error instanceof Error ? error.message : "词汇生成失败",
+      });
+      this.#vocabularyStates.set(id, binding);
+      this.view.applyVocabulary(id, binding);
+    }
+  }
+
+  #openWordSource(entry: SavedWord): void {
+    const target = savedItemTarget(entry.sourceUrl);
+    if (!target) {
+      this.view.setStatus("收藏来源链接无效。", "error");
+      return;
+    }
+    this.view.closeReaderWorkbench();
+    if (target.story !== null && target.story !== this.tree.story.id) {
+      this.onOpenTopic(target.story as StoryId);
+      return;
+    }
+    this.locateComment(target.comment, true);
   }
 
   async summarizeDiscussion(scope: DiscussionSummaryScope, length: SummaryLength): Promise<void> {

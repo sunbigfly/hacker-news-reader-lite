@@ -11,6 +11,8 @@ import { ReaderView } from "../src/shell/reader-view";
 import type { DiscussionSummaryHistoryEntry } from "../src/summary/summary-service";
 import { CommentProjection } from "../src/thread/comment-projection";
 import { CommentTree } from "../src/thread/comment-tree";
+import type { CommentId } from "../src/thread/model";
+import type { VocabularyWord } from "../src/vocabulary/model";
 
 describe("ReaderView", () => {
   it("styles header tools from their lifecycle-owned expanded state", () => {
@@ -213,6 +215,15 @@ describe("ReaderView", () => {
     const css = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
     expect(css).toMatch(/\.hnr-tree-collapse-hit\s*\{[^}]*pointer-events: auto;[^}]*cursor: pointer;/s);
     expect(css).toMatch(/\.hnr-tree-collapse-hit::after\s*\{[^}]*left: -5px;[^}]*width: 11px;[^}]*background: transparent;/s);
+  });
+
+  it("keeps the browser's native cursor model inside the comment viewport", () => {
+    const css = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
+    const viewportRules = [...css.matchAll(/\.hnr-comments\s*\{([^}]*)\}/gs)].map((match) => match[1] ?? "");
+    expect(viewportRules.some((rule) => rule.includes("user-select: text"))).toBe(true);
+    expect(viewportRules.every((rule) => !rule.includes("cursor: text"))).toBe(true);
+    expect(css).toMatch(/\.hnr-comment-action\s*\{[^}]*cursor: pointer;/s);
+    expect(css).toMatch(/\.hnr-comment-action:disabled\s*\{[^}]*cursor: default;/s);
   });
 
   it("keeps header tools expanded for one second after pointer leave", () => {
@@ -496,7 +507,7 @@ describe("ReaderView", () => {
       expect(view.surfaceRoot.querySelector("script")).toBeNull();
       expect(view.surfaceRoot.querySelector(".hnr-footer")).toBeNull();
       const commands = [...view.surfaceRoot.querySelectorAll<HTMLButtonElement>(".hnr-command")];
-      expect(commands).toHaveLength(7);
+      expect(commands).toHaveLength(8);
       expect(commands.every((button) => !button.hasAttribute("title"))).toBe(true);
       expect(commands.every((button) => {
         const tooltip = button.querySelector<HTMLElement>(".hnr-tooltip");
@@ -1150,6 +1161,197 @@ describe("ReaderView", () => {
     view.surfaceRoot.querySelector<HTMLElement>(".hnr-settings-backdrop")?.click();
     expect(view.surfaceRoot.querySelector(".hnr-settings-backdrop")).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
+    scope.destroy();
+  });
+
+  it("keeps vocabulary sections hidden until words arrive, then highlights the original text", () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    let target = 0;
+    let bindingWords: readonly VocabularyWord[] = Object.freeze([]);
+    const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    view.setVocabularyActions({
+      onRequest: (id) => (id === target && bindingWords.length > 0 ? { words: bindingWords } : undefined),
+      onOpenWordbook: vi.fn(),
+    });
+    view.applySettings({ ...DEFAULT_SETTINGS, vocabularyEnabled: true });
+    view.update(tree, new CommentProjection(tree), true);
+
+    const mounted = [...view.surfaceRoot.querySelectorAll<HTMLElement>(".hnr-comment[data-comment-id]")];
+    expect(mounted.length).toBeGreaterThan(0);
+    const candidates = mounted.flatMap((comment) => {
+      const keyword = (comment.querySelector<HTMLElement>(".hnr-original-text")?.textContent ?? "").match(/[a-z]{7,}/i)?.[0];
+      return keyword ? [{ comment, keyword }] : [];
+    });
+    const candidate = candidates[0];
+    if (!candidate) throw new Error("Fixture did not mount a comment with a long English word");
+    target = Number.parseInt(candidate.comment.dataset.commentId ?? "", 10);
+    const keyword = candidate.keyword;
+    bindingWords = Object.freeze([{
+      word: keyword.toLowerCase(),
+      ipa: `/${keyword.toLowerCase()}/`,
+      meaning: `${keyword} 的释义`,
+      example: `An example with ${keyword} inside.`,
+      exampleMeaning: `一个包含 ${keyword} 的例句。`,
+      level: "CET6",
+    }]);
+
+    view.refreshVocabulary();
+    const refreshed = view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${target}"]`);
+    const section = refreshed?.querySelector<HTMLElement>(".hnr-vocabulary");
+    const original = refreshed?.querySelector<HTMLElement>(".hnr-original-text");
+    expect(section?.hidden).toBe(false);
+    expect([...original?.querySelectorAll("mark[data-vocabulary-ink]") ?? []].length).toBeGreaterThan(0);
+
+    // Disabling the feature must leave the body exactly as the reader had it, brush included.
+    const expected = (() => {
+      const holder = document.createElement("div");
+      holder.innerHTML = original?.innerHTML ?? "";
+      for (const mark of holder.querySelectorAll("mark[data-vocabulary-ink]")) {
+        mark.replaceWith(mark.textContent ?? "");
+      }
+      return holder.innerHTML;
+    })();
+    view.setVocabularyEnabled(false);
+    expect(refreshed?.querySelector<HTMLElement>(".hnr-vocabulary")?.hidden).toBe(true);
+    expect(original?.querySelectorAll("mark[data-vocabulary-ink]")).toHaveLength(0);
+    expect(original?.innerHTML).toBe(expected);
+    scope.destroy();
+  });
+
+  it("inks the copy of the comment the reader actually shows, not the hidden original", () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    let target: CommentId = 0 as CommentId;
+    let words: readonly VocabularyWord[] = Object.freeze([]);
+    view.setVocabularyActions({
+      onRequest: (id) => (id === target && words.length > 0 ? { words } : undefined),
+      onOpenWordbook: vi.fn(),
+    });
+    view.applySettings({ ...DEFAULT_SETTINGS, vocabularyEnabled: true });
+    view.update(tree, new CommentProjection(tree), true);
+
+    const mounted = [...view.surfaceRoot.querySelectorAll<HTMLElement>(".hnr-comment[data-comment-id]")];
+    const candidates = mounted.flatMap((comment) => {
+      const keyword = (comment.querySelector<HTMLElement>(".hnr-original-text")?.textContent ?? "").match(/[a-z]{7,}/i)?.[0];
+      return keyword ? [{ comment, keyword }] : [];
+    });
+    const candidate = candidates[0];
+    if (!candidate) throw new Error("Fixture did not mount a comment with a long English word");
+    target = Number.parseInt(candidate.comment.dataset.commentId ?? "", 10) as CommentId;
+    const keyword = candidate.keyword;
+    const later = "elsewhere";
+    words = Object.freeze([{
+      word: keyword.toLowerCase(),
+      ipa: `/${keyword.toLowerCase()}/`,
+      meaning: `${keyword} 的释义`,
+      example: `An example with ${keyword} inside.`,
+      exampleMeaning: `一个包含 ${keyword} 的例句。`,
+      level: "CET6",
+    }, {
+      word: later,
+      ipa: `/${later}/`,
+      meaning: `${later} 的释义`,
+      example: `An example with ${later} inside.`,
+      exampleMeaning: `一个包含 ${later} 的例句。`,
+      level: "CET6",
+    }]);
+    view.refreshVocabulary();
+
+    const row = (): HTMLElement | null => view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${target}"]`);
+    const bodyChild = (name: string): HTMLElement | undefined => [...(row()?.querySelector<HTMLElement>(".hnr-comment-body")?.children ?? [])]
+      .find((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains(name));
+    const sections = (): HTMLElement[] => [...(bodyChild("hnr-bilingual-text")?.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section") ?? [])];
+    const marks = (root: HTMLElement | undefined): number => root?.querySelectorAll("mark[data-vocabulary-ink]").length ?? 0;
+
+    expect(marks(bodyChild("hnr-original-text"))).toBeGreaterThan(0);
+
+    // A translation arriving rebuilds the bilingual copy from scratch, and bilingual mode hides the
+    // original element outright: the ink has to move to the copy the reader is now looking at. A
+    // multi-paragraph comment gets one original section per paragraph, and every one of them needs ink.
+    view.setTranslation(
+      target,
+      "翻译文本",
+      "<p>翻译文本</p>",
+      `<div class="hnr-bilingual-original-section">The ${keyword} plan stands.</div><div class="hnr-bilingual-translation-section">翻译一</div>`
+        + `<div class="hnr-bilingual-original-section">A second paragraph mentions ${later} too.</div><div class="hnr-bilingual-translation-section">翻译二</div>`,
+    );
+    view.setTranslationMode("bilingual");
+
+    expect(bodyChild("hnr-original-text")?.hidden).toBe(true);
+    expect(sections()).toHaveLength(2);
+    expect(sections().map(marks)).toEqual([1, 1]);
+    expect(marks(bodyChild("hnr-original-text"))).toBe(0);
+    expect(row()?.querySelector<HTMLElement>(".hnr-vocabulary")?.hidden).toBe(false);
+
+    // Switching back must not leave the ink stranded in the copy that just became hidden.
+    view.setTranslationMode("original");
+    expect(marks(bodyChild("hnr-original-text"))).toBeGreaterThan(0);
+    expect(sections().map(marks)).toEqual([0, 0]);
+    scope.destroy();
+  });
+
+  it("aligns the vocabulary strip with the comment body instead of double-indenting it", () => {
+    const css = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
+    // The strip lives inside .hnr-comment-body, which already applies the rail inset, so the strip
+    // must not repeat that offset or its words sit further right than the body text.
+    const strip = /\.hnr-vocabulary\s*\{[^}]*\}/s.exec(css)?.[0] ?? "";
+    // The only margin is vertical spacing: no left/right offset of any kind.
+    expect(strip).toMatch(/margin:\s*9px 0 1px;/);
+    expect(strip).not.toMatch(/margin-inline-start|margin-left|margin-right|margin:\s*\d+px 0 \d+px \d+px/);
+    // Body and comment actions share one inset variable, so they cannot drift apart either.
+    expect(css).toMatch(/\.hnr-comment-body\s*\{[^}]*margin: 7px 0 0 var\(--hnr-tree-rail-inset, 39px\);/s);
+    expect(css).toMatch(/\.hnr-comment-actions\s*\{[^}]*margin: 4px 0 0 var\(--hnr-tree-rail-inset, 39px\);/s);
+    expect(css).toMatch(/--hnr-tree-rail-inset: 39px;/);
+  });
+
+  it("exposes the wordbook as a workbench tab that reads the live collection", () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    const words = Object.freeze([{
+      word: "undermine",
+      ipa: "/ˌʌndərˈmaɪn/",
+      meaning: "削弱",
+      example: "Late changes undermine a careful plan.",
+      exampleMeaning: "后期的改动可能削弱周密的计划。",
+      level: "CET6" as const,
+      sourceUrl: `https://news.ycombinator.com/item?id=1&story=${snapshot.story.id}`,
+      addedAt: 1_700_000_000_000,
+    }]);
+    const onOpenSource = vi.fn();
+    view.setWordbookQuery({
+      words: () => words,
+      onRemove: vi.fn(),
+      onOpenSource,
+      lookup: { peek: () => undefined, loadDictionary: () => Promise.resolve({ value: [], cached: false }), loadExamples: () => Promise.resolve({ value: [], cached: false }) } as never,
+    });
+    view.openReaderWorkbench([], [], [], {
+      onRunSummary: vi.fn(), onSelectSummary: vi.fn(), onDownload: vi.fn(), onDeleteDownload: vi.fn(), onOpenTopic: vi.fn(),
+      onOpenWordSource: onOpenSource,
+    }, "wordbook");
+
+    const tab = view.surfaceRoot.querySelector<HTMLButtonElement>('[data-summary-tab="wordbook"]');
+    expect(tab?.textContent).toBe("单词本 1");
+    const pane = view.surfaceRoot.querySelector<HTMLElement>('[data-summary-pane="wordbook"]');
+    expect(pane?.hidden).toBe(false);
+    expect(pane?.querySelector("[data-wordbook-word]")?.getAttribute("data-wordbook-word")).toBe("undermine");
+    pane?.querySelector<HTMLButtonElement>('[data-wordbook-word="undermine"]')?.click();
+    pane?.querySelector<HTMLButtonElement>(".hnr-wordbook-action")?.click();
+    expect(onOpenSource).toHaveBeenCalledWith(expect.objectContaining({ word: "undermine" }));
     scope.destroy();
   });
 });

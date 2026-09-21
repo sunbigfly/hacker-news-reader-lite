@@ -5,6 +5,11 @@
     "commit": "eec5e110d6e003c790947df294ef05a44e8bac8d",
     "license": "MIT"
   },
+  "vocabularySource": {
+    "repository": "https://github.com/sunbigfly/forum-translater",
+    "commit": "6d24a58d1940a01a0e1801e46edeff480883ccf9",
+    "license": "MIT"
+  },
   "entries": [
     {
       "source": "lite/src/kernel/lifecycle.ts",
@@ -112,6 +117,94 @@
       "status": "adapted-owner",
       "tests": ["lite/tests/offline-document.test.ts"],
       "removed": ["Discourse archive schema", "reaction and quote projections", "download history manager"]
+    },
+    {
+      "source": "src/vocabulary.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "c1479e168a8ea71e9e93cd43a5dd54608863558d1d184e92fe9b234e436304a7",
+      "target": "lite/src/vocabulary/model.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-model.test.ts"]
+    },
+    {
+      "source": "src/vocabulary.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "c1479e168a8ea71e9e93cd43a5dd54608863558d1d184e92fe9b234e436304a7",
+      "target": "lite/src/vocabulary/service.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-service.test.ts"]
+    },
+    {
+      "source": "src/vocabulary-prompt.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "fba898556205cc54a7e0f4d0d63161ac69cc8428a015510fc3c6e769011b5344",
+      "target": "lite/src/vocabulary/prompt.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-prompt.test.ts"]
+    },
+    {
+      "source": "src/vocabulary-highlights.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "31455f72c3f78b2c50344d89d0ab345c117ad35152b2b0640a821513fa46b5b7",
+      "target": "lite/src/vocabulary/highlights.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-highlights.test.ts"]
+    },
+    {
+      "source": "src/vocabulary-ui.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "92555cdf87e9721f8dd77c791fd976319593cdef60613c3c6b3340ceb3ab811b",
+      "target": "lite/src/vocabulary/word-popup.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-section.test.ts"]
+    },
+    {
+      "source": "src/vocabulary-ui.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "92555cdf87e9721f8dd77c791fd976319593cdef60613c3c6b3340ceb3ab811b",
+      "target": "lite/src/vocabulary/comment-vocabulary.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-section.test.ts"]
+    },
+    {
+      "source": "src/wordbook.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "6d85b552bc29e6de1bdf68edc6cde36ece29f03972ed543f60bf06da108252e5",
+      "target": "lite/src/vocabulary/wordbook.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-wordbook.test.ts"]
+    },
+    {
+      "source": "src/wordbook.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "6d85b552bc29e6de1bdf68edc6cde36ece29f03972ed543f60bf06da108252e5",
+      "target": "lite/src/vocabulary/wordbook-panel.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-wordbook-panel.test.ts"]
+    },
+    {
+      "source": "src/wordbook.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "6d85b552bc29e6de1bdf68edc6cde36ece29f03972ed543f60bf06da108252e5",
+      "target": "lite/src/vocabulary/lookup.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-lookup.test.ts"]
+    },
+    {
+      "source": "src/wordbook-ecdict.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "52a6c68ae1f6eb5f6519272e914960bb7ef634ecd6309fce7fd72d222f7ae3fc",
+      "target": "lite/src/vocabulary/ecdict.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-wordbook-panel.test.ts"]
+    },
+    {
+      "source": "src/wordbook-ecdict-data.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "56eee944c2c64b2029b3de9a18c0f520a46f212cbb89041ced1e1212753730f8",
+      "target": "lite/src/vocabulary/ecdict-data.ts",
+      "status": "direct-copy",
+      "tests": ["lite/tests/vocabulary-ecdict.test.ts"]
     }
   ]
 }

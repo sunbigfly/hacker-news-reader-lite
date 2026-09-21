@@ -3,6 +3,7 @@ import {
   normalizeReaderTranslationTheme,
   type ReaderTranslationTheme,
 } from "../translation/translation-presentation";
+import type { VocabularyLevelChoice } from "../vocabulary/prompt";
 
 export type TranslationProviderChoice = "auto" | "google" | "microsoft" | "ai";
 export type TranslationDisplayMode = "original" | "bilingual" | "translated";
@@ -10,6 +11,8 @@ export type ReaderTheme = "auto" | "light" | "dark";
 export type ReaderFontFamily = "system" | "cjkSans" | "serif" | "monospace" | "custom";
 export type ReaderFontWeight = 300 | 400 | 500 | 600;
 export type CommentDisplayMode = "smart" | "expanded" | "roots";
+
+const VOCABULARY_LEVEL_CHOICES = Object.freeze<readonly VocabularyLevelChoice[]>(["cet6", "cet6+"]);
 
 export interface ReplyDisplaySettings {
   readonly commentDisplayMode: CommentDisplayMode;
@@ -64,6 +67,8 @@ export interface ReaderSettings extends ReplyDisplaySettings {
   readonly translationMode: TranslationDisplayMode;
   readonly translationTheme: ReaderTranslationTheme;
   readonly targetLanguage: "zh-CN";
+  readonly vocabularyEnabled: boolean;
+  readonly vocabularyLevels: VocabularyLevelChoice;
   readonly ai: AiProfile;
   readonly titleFontFamily: ReaderFontFamily;
   readonly titleCustomFontFamily: string;
@@ -87,6 +92,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = Object.freeze({
   translationMode: "bilingual",
   translationTheme: DEFAULT_READER_TRANSLATION_THEME,
   targetLanguage: "zh-CN",
+  vocabularyEnabled: false,
+  vocabularyLevels: "cet6",
   ai: Object.freeze({
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
@@ -169,6 +176,10 @@ export function normalizeSettings(value: unknown): ReaderSettings {
     translationMode: modes.has(record.translationMode as TranslationDisplayMode) ? record.translationMode as TranslationDisplayMode : DEFAULT_SETTINGS.translationMode,
     translationTheme: normalizeReaderTranslationTheme(record.translationTheme),
     targetLanguage: "zh-CN",
+    vocabularyEnabled: typeof record.vocabularyEnabled === "boolean" ? record.vocabularyEnabled : DEFAULT_SETTINGS.vocabularyEnabled,
+    vocabularyLevels: VOCABULARY_LEVEL_CHOICES.includes(record.vocabularyLevels as VocabularyLevelChoice)
+      ? record.vocabularyLevels as VocabularyLevelChoice
+      : DEFAULT_SETTINGS.vocabularyLevels,
     ai: {
       baseUrl: typeof aiRecord.baseUrl === "string" ? aiRecord.baseUrl : DEFAULT_SETTINGS.ai.baseUrl,
       apiKey: typeof aiRecord.apiKey === "string" ? aiRecord.apiKey : "",

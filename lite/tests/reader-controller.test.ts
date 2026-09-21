@@ -809,4 +809,159 @@ describe("ReaderController workspace continuity", () => {
     expect(shadow?.querySelector(".hnr-status")?.textContent).toContain("已删除下载历史");
     scope.destroy();
   });
+
+  it("highlights collected vocabulary inside the comment body once the answer arrives", async () => {
+    document.documentElement.innerHTML = translationThreadHtml(3);
+    vi.stubGlobal("indexedDB", indexedDB);
+    vi.stubGlobal("GM_getValue", (key: string, fallback: unknown) => key === "hn-reader:settings:v1"
+      ? { ...DEFAULT_SETTINGS, vocabularyEnabled: true, ai: { ...DEFAULT_SETTINGS.ai, apiKey: "sk-test" } }
+      : fallback);
+    vi.stubGlobal("GM_setValue", vi.fn());
+    const vocabularyRequests: GmRequestOptions[] = [];
+    vi.stubGlobal("GM_xmlhttpRequest", (options: GmRequestOptions): GmRequestHandle => {
+      vocabularyRequests.push(options);
+      queueMicrotask(() => {
+        options.onload({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: application/json",
+          responseText: JSON.stringify({
+            choices: [{
+              message: {
+                content: JSON.stringify([{
+                  word: "engineering",
+                  ipa: "/ˌendʒɪˈnɪərɪŋ/",
+                  meaning: "工程",
+                  example: "Software engineering rewards careful readers.",
+                  exampleMeaning: "软件工程会奖励细心的读者。",
+                  level: "CET6",
+                }]),
+              },
+            }],
+          }),
+          finalUrl: options.url,
+        });
+      });
+      return { abort: () => options.onabort() };
+    });
+    const scope = new LifecycleScope();
+    const controller = new ReaderController(document, scope, "", new ReaderWorkspaceStateStore());
+
+    await controller.open(100 as never);
+    const shadow = document.querySelector<HTMLElement>("#hn-reader-root")?.shadowRoot;
+    await vi.waitFor(() => {
+      expect(shadow?.querySelectorAll("mark[data-vocabulary-ink]").length ?? 0).toBeGreaterThan(0);
+    }, { timeout: 3_000 });
+
+    const marked = [...shadow?.querySelectorAll<HTMLElement>("mark[data-vocabulary-ink]") ?? []];
+    expect(marked.map((mark) => mark.textContent)).toEqual(["engineering", "engineering", "engineering"]);
+    // Each mark lives in its own comment body and carries its ink band.
+    const bodies = new Set(marked.map((mark) => mark.closest(".hnr-original-text")));
+    expect(bodies.size).toBe(3);
+    expect(marked[0]?.style.getPropertyValue("--hnr-vocabulary-ink")).toMatch(/^#/);
+    expect(marked[0]?.dataset.vocabularyWord).toBe("engineering");
+    // The strip below the body is populated too, not just the marks.
+    expect(shadow?.querySelector(".hnr-vocabulary:not([hidden]) .hnr-word-label")?.textContent).toBe("engineering");
+
+    // Any later render — scroll, refresh, a translation batch — recycles the row and must repaint.
+    const viewport = shadow?.querySelector<HTMLElement>(".hnr-comments");
+    if (!viewport) throw new Error("reader viewport was not rendered");
+    viewport.scrollTop = 400;
+    viewport.dispatchEvent(new Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    shadow?.querySelector<HTMLButtonElement>('[data-command="refresh"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const afterRenders = [...shadow?.querySelectorAll<HTMLElement>("mark[data-vocabulary-ink]") ?? []];
+    expect(afterRenders.length).toBeGreaterThan(0);
+    expect(afterRenders[0]?.style.getPropertyValue("--hnr-vocabulary-ink")).toMatch(/^#/);
+    // The mark's real ancestor path must be the one the ink selector is written against.
+    const mark = afterRenders[0];
+    expect(mark?.parentElement?.className).toBe("hnr-original-text");
+    expect(mark?.closest(".hnr-comment-body")?.className).toBe("hnr-comment-body");
+    expect(mark?.matches(".hnr-comment-body .hnr-original-text mark[data-vocabulary-ink]")).toBe(true);
+    scope.destroy();
+  });
+
+  it("keeps vocabulary marks alive while a translation streams into the same comment", async () => {
+    document.documentElement.innerHTML = translationThreadHtml(3);
+    vi.stubGlobal("indexedDB", indexedDB);
+    vi.stubGlobal("GM_getValue", (key: string, fallback: unknown) => key === "hn-reader:settings:v1"
+      ? {
+          ...DEFAULT_SETTINGS,
+          translationEnabled: true,
+          vocabularyEnabled: true,
+          ai: { ...DEFAULT_SETTINGS.ai, apiKey: "sk-test" },
+        }
+      : fallback);
+    vi.stubGlobal("GM_setValue", vi.fn());
+    const releases: Array<() => void> = [];
+    vi.stubGlobal("GM_xmlhttpRequest", (options: GmRequestOptions): GmRequestHandle => {
+      const isVocabulary = options.url.includes("/chat/completions");
+      let aborted = false;
+      releases.push(() => {
+        if (aborted) return;
+        if (isVocabulary) {
+          options.onload({
+            status: 200,
+            statusText: "OK",
+            responseHeaders: "content-type: application/json",
+            responseText: JSON.stringify({ choices: [{ message: { content: JSON.stringify([{
+              word: "engineering",
+              ipa: "/ˌendʒɪˈnɪərɪŋ/",
+              meaning: "工程",
+              example: "Software engineering rewards careful readers.",
+              exampleMeaning: "软件工程会奖励细心的读者。",
+              level: "CET6",
+            }]) } }] }),
+            finalUrl: options.url,
+          });
+          return;
+        }
+        // A translation response streams several partial bodies before the final one.
+        for (const partial of ['{"0":"工程学', '{"0":"工程学评论解释了详细的软件实践。"}']) {
+          options.onprogress?.({
+            status: 200,
+            statusText: "OK",
+            responseHeaders: "content-type: text/event-stream",
+            responseText: partial,
+            finalUrl: options.url,
+          });
+        }
+        options.onload({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: application/json",
+          responseText: JSON.stringify({ 0: "工程学评论解释了详细的软件实践。" }),
+          finalUrl: options.url,
+        });
+      });
+      return {
+        abort: () => {
+          aborted = true;
+          options.onabort();
+        },
+      };
+    });
+    const scope = new LifecycleScope();
+    const controller = new ReaderController(document, scope, "", new ReaderWorkspaceStateStore());
+
+    await controller.open(100 as never);
+    const shadow = document.querySelector<HTMLElement>("#hn-reader-root")?.shadowRoot;
+    // Translation and vocabulary are collected in parallel, so requests arrive in waves; answer each
+    // wave as it appears and let both pipelines settle.
+    for (let turn = 0; turn < 30; turn += 1) {
+      const pending = releases.splice(0);
+      if (pending.length > 0) for (const release of pending) release();
+      else if (turn > 3
+        && (shadow?.querySelectorAll(".hnr-bilingual-text:not([hidden])").length ?? 0) > 0
+        && (shadow?.querySelectorAll("mark[data-vocabulary-ink]").length ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    expect(shadow?.querySelectorAll(".hnr-bilingual-text:not([hidden])").length ?? 0).toBeGreaterThan(0);
+    const marks = [...shadow?.querySelectorAll<HTMLElement>("mark[data-vocabulary-ink]") ?? []];
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0]?.style.getPropertyValue("--hnr-vocabulary-ink")).toMatch(/^#/);
+    scope.destroy();
+  });
 });

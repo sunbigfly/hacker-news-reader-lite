@@ -456,7 +456,10 @@ button { color: inherit; }
 .hnr-download-history-action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .hnr-download-history-delete:hover, .hnr-download-history-delete[data-confirm="true"] { border-color: var(--hnr-danger); color: var(--hnr-danger); }
 
-.hnr-comments { min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; outline: none; background: var(--hnr-paper-raised); cursor: text; user-select: text; -webkit-user-select: text; }
+/* No forced text cursor: the viewport keeps the browser's own resolution, so glyphs show the text
+   cursor while blank space, rails and padding show the arrow; links and buttons keep their own.
+   user-select: text still lets the reader select and copy comment text. */
+.hnr-comments { min-height: 0; overflow: auto; overflow-anchor: none; overscroll-behavior: contain; scrollbar-gutter: stable; outline: none; background: var(--hnr-paper-raised); user-select: text; -webkit-user-select: text; }
 .hnr-comments:focus-visible { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--hnr-accent) 55%, transparent); }
 .hnr-virtual-items { padding: 9px clamp(24px, 3vw, 48px) 30px clamp(12px, 2vw, 26px); }
 .hnr-virtual-spacer { width: 1px; pointer-events: none; }
@@ -466,6 +469,7 @@ button { color: inherit; }
   --hnr-tree-step: 30px;
   --hnr-tree-origin: 30px;
   --hnr-tree-avatar-gap: 5px;
+  --hnr-tree-rail-inset: 39px;
   position: relative;
   min-height: 64px;
   padding: 10px 14px 8px calc(15px + var(--hnr-display-depth) * var(--hnr-tree-step));
@@ -518,7 +522,7 @@ button { color: inherit; }
 .hnr-branch-toggle::after { position: relative; z-index: 1; content: attr(data-toggle-symbol); }
 .hnr-branch-toggle:hover { color: var(--hnr-accent-dark); }
 .hnr-branch-toggle:hover::before { border-color: var(--hnr-accent); }
-.hnr-comment-body { position: relative; z-index: 1; width: min(105ch, calc(100% - 39px)); margin: 7px 0 0 39px; overflow-wrap: anywhere; font-family: var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); font-size: calc(15px * var(--hnr-font-scale, 1)); font-weight: var(--hnr-content-font-weight, 400); line-height: var(--hnr-line-height, 1.62); }
+.hnr-comment-body { position: relative; z-index: 1; width: min(105ch, calc(100% - var(--hnr-tree-rail-inset, 39px))); margin: 7px 0 0 var(--hnr-tree-rail-inset, 39px); overflow-wrap: anywhere; font-family: var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); font-size: calc(15px * var(--hnr-font-scale, 1)); font-weight: var(--hnr-content-font-weight, 400); line-height: var(--hnr-line-height, 1.62); }
 .hnr-comment, .hnr-comment-body, .hnr-original-text, .hnr-translated-text, .hnr-bilingual-text { user-select: text; -webkit-user-select: text; }
 .hnr-comment-body p { margin: .65em 0; }
 .hnr-comment-body pre { max-width: 100%; overflow: auto; overscroll-behavior-inline: contain; touch-action: pan-x pan-y; padding: 10px; border: 1px solid var(--hnr-line); background: #eee9dd; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -553,7 +557,7 @@ button { color: inherit; }
 :host([data-translation-theme="underline"]) .hnr-bilingual-text .hnr-bilingual-translation-section { color: var(--hnr-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--hnr-accent) 58%, transparent); text-decoration-thickness: 1px; text-underline-offset: .18em; }
 :host([data-translation-theme="highlight"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .5em .7em; border-radius: .55em; background: color-mix(in srgb, var(--hnr-accent) 16%, transparent); color: var(--hnr-ink); }
 :host([data-translation-theme="paper"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .65em .8em; border: 1px solid color-mix(in srgb, var(--hnr-line) 78%, transparent); border-radius: .6em; background: color-mix(in srgb, var(--hnr-paper-raised) 94%, var(--hnr-paper)); box-shadow: 0 .18em .55em rgb(15 23 42 / 7%); color: var(--hnr-ink); }
-.hnr-comment-actions { position: relative; z-index: 5; display: flex; gap: 5px; margin: 4px 0 0 39px; width: max-content; }
+.hnr-comment-actions { position: relative; z-index: 5; display: flex; gap: 5px; margin: 4px 0 0 var(--hnr-tree-rail-inset, 39px); width: max-content; }
 .hnr-comment-body[hidden], .hnr-comment-actions[hidden] { display: none !important; }
 .hnr-comment[data-collapsed="true"] { min-height: 44px; padding-right: 14px; padding-bottom: 8px; padding-left: calc(41px + var(--hnr-display-depth) * var(--hnr-tree-step)); }
 .hnr-comment[data-collapsed="true"] .hnr-comment-head { min-height: 24px; }
@@ -748,7 +752,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
 @container hnr-reader (max-width: 780px) {
   .hnr-header { grid-template-columns: minmax(0, 1fr) auto; gap: 0 7px; padding-inline: 12px; }
   .hnr-virtual-items { padding-inline: 12px 20px; }
-  .hnr-comment, .hnr-missing, .hnr-replies { --hnr-tree-max-depth: 5; --hnr-tree-step: 30px; --hnr-tree-origin: 24px; padding-left: calc(9px + var(--hnr-display-depth) * var(--hnr-tree-step)); padding-right: 18px; }
+  .hnr-comment, .hnr-missing, .hnr-replies { --hnr-tree-max-depth: 5; --hnr-tree-step: 30px; --hnr-tree-origin: 24px; --hnr-tree-rail-inset: 32px; padding-left: calc(9px + var(--hnr-display-depth) * var(--hnr-tree-step)); padding-right: 18px; }
   .hnr-tree-rail:not([data-level="0"], [data-level="1"], [data-level="2"], [data-level="3"], [data-level="4"], [data-level="5"]) { display: none; }
   .hnr-summary-window { width: min(620px, 100%); height: min(540px, 100%); border-radius: 10px; }
   .hnr-summary-window-header { padding: 16px; }
@@ -764,7 +768,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
 
 @container hnr-reader (max-width: 520px) {
   .hnr-virtual-items { padding-inline: 4px; }
-  .hnr-comment, .hnr-missing, .hnr-replies { --hnr-tree-max-depth: 3; --hnr-tree-step: 30px; --hnr-tree-origin: 21px; padding-left: calc(6px + var(--hnr-display-depth) * var(--hnr-tree-step)); padding-right: 6px; }
+  .hnr-comment, .hnr-missing, .hnr-replies { --hnr-tree-max-depth: 3; --hnr-tree-step: 30px; --hnr-tree-origin: 21px; --hnr-tree-rail-inset: 27px; padding-left: calc(6px + var(--hnr-display-depth) * var(--hnr-tree-step)); padding-right: 6px; }
   .hnr-reply-settings { grid-template-columns: minmax(0, 1fr); }
   .hnr-tree-rail:not([data-level="0"], [data-level="1"], [data-level="2"], [data-level="3"]) { display: none; }
   .hnr-comment-actions { width: auto; }
@@ -855,4 +859,180 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
   .hnr-select-menu { --hnr-settings-font-control: 16px; }
   .hnr-select-option { min-height: 44px; }
   .hnr-settings-pages { touch-action: pan-y; }
+}
+
+/* Comment vocabulary: a centred hairline, then the word rows and nothing else. The section is a
+   child of .hnr-comment-body, which already carries the tree-rail offset, so it adds no indent of
+   its own and its words line up with the first character of the body text. */
+.hnr-vocabulary { width: min(105ch, 100%); margin: 9px 0 1px; color: var(--hnr-muted); font: 400 12px/1.5 ui-sans-serif, system-ui, sans-serif; }
+.hnr-vocabulary[hidden] { display: none !important; }
+.hnr-vocabulary-body { display: grid; margin: 0; padding: 0; border: 0; }
+/* A gradient rule instead of a drawn line, so the separator fades out at both ends. */
+.hnr-vocabulary-body::before { height: 1px; margin-bottom: 5px; content: ""; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hnr-muted) 45%, transparent) 35%, color-mix(in srgb, var(--hnr-muted) 45%, transparent) 65%, transparent); }
+.hnr-vocabulary-list { display: grid; gap: 1px; }
+.hnr-vocabulary-more { justify-self: start; padding: 2px 0; border: 0; background: transparent; color: var(--hnr-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.hnr-vocabulary-more:hover, .hnr-vocabulary-more:focus-visible { color: var(--hnr-accent-dark); text-decoration: underline; }
+.hnr-vocabulary-message { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.hnr-vocabulary-message[hidden] { display: none !important; }
+.hnr-vocabulary-status { margin: 2px 0 0; color: var(--hnr-danger); font-size: 11px; }
+.hnr-vocabulary-status:empty { display: none; }
+.hnr-vocabulary[data-vocabulary-state="error"] { color: var(--hnr-danger); }
+
+.hnr-word-row { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 1px 0; }
+.hnr-word-row[hidden] { display: none !important; }
+.hnr-word-label { flex: 0 0 auto; font-weight: 400; white-space: nowrap; cursor: help; border-radius: 3px; }
+.hnr-word-label:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.hnr-word-ipa { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.hnr-word-meaning { flex: 0 1 auto; min-width: 0; margin-inline-start: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hnr-word-sound, .hnr-word-bookmark { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 2px; border: 0; border-radius: 50%; background: transparent; color: inherit; opacity: .8; cursor: pointer; }
+.hnr-word-sound:hover, .hnr-word-bookmark:hover, .hnr-word-sound:focus-visible, .hnr-word-bookmark:focus-visible { opacity: 1; }
+.hnr-word-sound:focus-visible, .hnr-word-bookmark:focus-visible { outline: 1px solid currentColor; border-radius: 3px; }
+.hnr-word-sound svg, .hnr-word-bookmark svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hnr-word-sound.is-speaking { opacity: 1; color: var(--hnr-accent-dark); }
+.hnr-word-sound.is-speaking svg { animation: hnr-word-audio-pulse .8s ease-in-out infinite; }
+.hnr-word-bookmark:hover, .hnr-word-bookmark:focus-visible { color: #1d9bf0; }
+.hnr-word-bookmark[aria-pressed="true"] { color: #1d9bf0; opacity: 1; }
+.hnr-word-bookmark[aria-pressed="true"] svg { fill: currentColor; }
+@keyframes hnr-word-audio-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .hnr-word-sound.is-speaking svg { animation: none; } }
+
+/* The brush is an inline <svg> child rather than the reference's data: background image, because the
+   host's CSP (`img-src 'self' https://account.ycombinator.com`) blocks every data: URL and the
+   reference brush therefore never painted. `isolation` gives each mark its own stacking context so the
+   negative-z brush paints above the band below and underneath the word itself. */
+mark[data-vocabulary-ink] { position: relative; isolation: isolate; }
+mark[data-vocabulary-ink] > .hnr-vocabulary-brush { position: absolute; z-index: -1; bottom: .05em; left: 0; width: 100%; height: 1.45em; overflow: visible; pointer-events: none; }
+
+/* Vocabulary ink, ported from the reference userscript: the strokes are the inline SVG drawn by
+   highlights.ts. This rule is the guaranteed floor, so the mark stays visible even if that SVG is
+   ever lost. Both copies of the comment text are listed, because bilingual mode shows the section the
+   translation built rather than `.hnr-original-text`, and the selector is scoped through
+   .hnr-comment-body so the translation-theme rules above cannot reset it. */
+.hnr-comment-body .hnr-original-text mark[data-vocabulary-ink],
+.hnr-comment-body .hnr-bilingual-original-section mark[data-vocabulary-ink] { color: inherit; background-color: color-mix(in srgb, var(--hnr-vocabulary-ink, transparent) 18%, transparent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--hnr-vocabulary-ink, currentColor) 70%, transparent); text-decoration-thickness: 1px; text-underline-offset: 2px; border-radius: 3px; padding: 0 1px; }
+
+.hnr-word-popup { position: fixed; z-index: 19; width: min(300px, calc(100vw - 16px)); }
+.hnr-word-popup[hidden] { display: none !important; }
+/* Workbench wordbook pane: same kicker, serif heading, numbered rows and muted meta as its siblings. */
+.hnr-wordbook-pane { padding: 18px; }
+.hnr-wordbook-pane[hidden] { display: none; }
+.hnr-wordbook-heading { padding-bottom: 16px; border-bottom: 1px solid var(--hnr-line); }
+.hnr-wordbook-heading h3 { margin: 5px 0 0; font: 750 17px/1.25 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
+.hnr-wordbook-heading p { margin: 6px 0 0; color: var(--hnr-muted); font: 11px/1.5 ui-sans-serif, system-ui, sans-serif; }
+
+.hnr-wordbook-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 14px; }
+.hnr-wordbook-search { flex: 1 1 190px; box-sizing: border-box; min-width: 0; height: 34px; padding: 6px 10px; border: 1px solid var(--hnr-line); border-radius: 7px; background: var(--hnr-paper-raised); color: var(--hnr-ink); font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-search::placeholder { color: var(--hnr-muted); }
+.hnr-wordbook-field { display: grid; flex: 0 1 auto; min-width: 0; gap: 4px; color: var(--hnr-muted); font: 650 9px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; }
+.hnr-wordbook-field select { width: 100%; min-width: 0; height: 34px; padding: 5px 8px; border: 1px solid var(--hnr-line); border-radius: 7px; background: var(--hnr-paper-raised); color: var(--hnr-ink); font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
+
+.hnr-wordbook-list { display: grid; min-width: 0; margin-top: 6px; }
+.hnr-wordbook-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 3px 10px; align-items: center; padding: 13px 8px; border-bottom: 1px solid var(--hnr-line); }
+.hnr-wordbook-row:hover { background: color-mix(in srgb, var(--hnr-accent) 5%, transparent); }
+.hnr-wordbook-row .hnr-summary-history-number { grid-row: 1 / 3; align-self: start; }
+.hnr-wordbook-open { grid-column: 2; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.hnr-wordbook-word { min-width: 0; overflow: hidden; font: 750 14px/1.35 var(--hnr-title-font-family, ui-serif, Georgia, serif); text-overflow: ellipsis; white-space: nowrap; }
+.hnr-wordbook-meta { grid-column: 2; display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; }
+.hnr-wordbook-meta > * { min-width: 0; overflow: hidden; color: var(--hnr-muted); font: 650 9px/1.2 ui-sans-serif, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.hnr-wordbook-meta > * + *::before { margin-right: 5px; content: "/"; color: var(--hnr-line); }
+.hnr-wordbook-level { color: var(--hnr-accent-dark); }
+
+.hnr-wordbook-icon { grid-row: 1 / 3; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--hnr-muted); cursor: pointer; }
+.hnr-wordbook-icon:hover, .hnr-wordbook-icon:focus-visible { border-color: var(--hnr-line); color: var(--hnr-ink); }
+.hnr-wordbook-remove:hover, .hnr-wordbook-remove:focus-visible { border-color: color-mix(in srgb, var(--hnr-danger) 55%, var(--hnr-line)); color: var(--hnr-danger); }
+.hnr-wordbook-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hnr-wordbook-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.hnr-wordbook-row .hnr-word-sound { grid-row: 1 / 3; width: 30px; height: 30px; opacity: .8; }
+
+.hnr-wordbook-empty { margin: 18px 0 0; padding: 24px; border: 1px dashed var(--hnr-line); border-radius: 9px; color: var(--hnr-muted); font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; text-align: center; }
+.hnr-wordbook-pages { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; color: var(--hnr-muted); font: 650 10px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-page { height: 30px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 6px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-page:hover:not(:disabled) { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
+.hnr-wordbook-page:disabled { opacity: .45; cursor: default; }
+
+/* Second level of the pane: a sticky route bar, then the entry and its study facts. `display: grid`
+   would beat the plain `hidden` attribute, so each level declares its own guard. */
+.hnr-wordbook-page-list[hidden], .hnr-wordbook-detail[hidden] { display: none !important; }
+.hnr-wordbook-detail { display: grid; gap: 16px; min-width: 0; }
+.hnr-wordbook-nav { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -18px -18px 0; padding: 10px 18px; border-bottom: 1px solid var(--hnr-line); background: var(--hnr-paper-raised); }
+.hnr-wordbook-back { height: 30px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 6px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; }
+.hnr-wordbook-back:hover, .hnr-wordbook-back:focus-visible { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
+.hnr-wordbook-hero { position: relative; display: grid; gap: 8px; padding: 16px 18px; border: 1px solid var(--hnr-line); border-radius: 10px; background: var(--hnr-paper-raised); }
+.hnr-wordbook-hero::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; content: ""; background: var(--hnr-accent); border-radius: 10px 0 0 10px; }
+.hnr-wordbook-hero-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; min-width: 0; }
+.hnr-wordbook-hero-word { font: 750 24px/1.15 var(--hnr-title-font-family, ui-serif, Georgia, serif); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hnr-wordbook-hero-ipa { color: var(--hnr-muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.hnr-wordbook-hero-meaning { margin: 0; font: 14px/1.6 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+.hnr-wordbook-hero .hnr-wordbook-level { align-self: center; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--hnr-accent) 40%, var(--hnr-line)); border-radius: 999px; font: 650 9px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; }
+.hnr-wordbook-hero .hnr-word-sound { align-self: center; width: 26px; height: 26px; opacity: .85; }
+/* One reading measure on the left, the study facts as a rail on the right, exactly like the
+   reference userscript's detail page. */
+.hnr-wordbook-columns { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 20px; align-items: start; }
+.hnr-wordbook-main { display: grid; min-width: 0; gap: 10px; }
+.hnr-wordbook-section { display: grid; gap: 6px; padding: 0 2px; }
+.hnr-wordbook-section h3 { margin: 4px 0 0; font: 750 14px/1.25 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
+.hnr-wordbook-example { margin: 0; font: 15px/1.6 var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); overflow-wrap: anywhere; }
+.hnr-wordbook-section > .hnr-wordbook-example { margin-top: 3px; }
+.hnr-wordbook-example-meaning { margin: 2px 0 0; color: var(--hnr-muted); font: 12px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+.hnr-wordbook-ink { color: inherit; background-color: var(--hnr-vocabulary-ink-soft, transparent); text-decoration: none; }
+.hnr-wordbook-study { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--hnr-line); border-radius: 10px; background: color-mix(in srgb, var(--hnr-paper) 62%, transparent); }
+.hnr-wordbook-study h3 { margin: 0; font: 750 11px/1.3 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
+.hnr-wordbook-study dl { display: grid; gap: 2px; margin: 0; font: 10px/1.5 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-study dt { margin-top: 7px; color: var(--hnr-muted); font-size: 9px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.hnr-wordbook-study dd { margin: 0; overflow-wrap: anywhere; }
+.hnr-wordbook-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hnr-wordbook-action { height: 30px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 6px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-action:hover { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
+.hnr-wordbook-action-danger:hover { border-color: color-mix(in srgb, var(--hnr-danger) 55%, var(--hnr-line)); color: var(--hnr-danger); }
+
+/* Source tabs. The reference userscript switches panels with a segmented bar; here the segments keep
+   the workbench's flat borders and only the selected one carries the accent. */
+.hnr-wordbook-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--hnr-line); }
+.hnr-wordbook-tab { height: 28px; padding: 0 11px; border: 1px solid var(--hnr-line); border-radius: 999px; background: transparent; color: var(--hnr-muted); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em; }
+.hnr-wordbook-tab:hover { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
+.hnr-wordbook-tab[aria-selected="true"] { border-color: var(--hnr-accent); background: color-mix(in srgb, var(--hnr-accent) 12%, transparent); color: var(--hnr-accent-dark); }
+/* Each tab panel carries its own `display`, which beats the plain `hidden` attribute, so the guard
+   lives on the container and covers every panel the tab bar can close. */
+.hnr-wordbook-main > [hidden] { display: none !important; }
+.hnr-wordbook-source { display: grid; gap: 12px; min-width: 0; }
+.hnr-wordbook-source[hidden] { display: none !important; }
+.hnr-wordbook-slot { display: grid; gap: 8px; min-width: 0; }
+.hnr-wordbook-slot:empty::before { content: ""; }
+.hnr-wordbook-entry, .hnr-wordbook-dictionary { display: grid; gap: 8px; min-width: 0; }
+.hnr-wordbook-gloss { margin: 0; color: var(--hnr-ink); font: 14px/1.7 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+.hnr-wordbook-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.hnr-wordbook-tag { padding: 2px 7px; border: 1px solid var(--hnr-line); border-radius: 999px; color: var(--hnr-muted); font: 650 9px/1.4 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-forms { margin: 0; color: var(--hnr-muted); font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.hnr-wordbook-dictionary h4 { margin: 2px 0 0; color: var(--hnr-accent-dark); font: 700 11px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+.hnr-wordbook-definitions { display: grid; gap: 6px; margin: 0; padding-left: 18px; font: 13px/1.6 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-definitions > li { overflow-wrap: anywhere; }
+.hnr-wordbook-definitions .hnr-wordbook-note { margin: 3px 0 0; }
+.hnr-wordbook-note { margin: 0; color: var(--hnr-muted); font: 10px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+a.hnr-wordbook-note { width: fit-content; text-decoration: none; border-bottom: 1px dotted var(--hnr-line); }
+a.hnr-wordbook-note:hover { color: var(--hnr-accent-dark); border-bottom-color: var(--hnr-accent); }
+
+:host([data-theme="dark"]) .hnr-wordbook-row:hover { background: color-mix(in srgb, var(--hnr-accent) 10%, transparent); }
+:host([data-theme="dark"]) .hnr-word-row .hnr-word-label { color: #f1ece2; }
+
+@media (max-width: 900px) {
+  /* The compact Reader has no hover, so the word itself is the only affordance left. */
+  .hnr-word-label { cursor: text; }
+}
+
+@container hnr-reader (max-width: 780px) {
+  .hnr-wordbook-pane { padding: 14px; }
+  .hnr-wordbook-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 3px 8px; padding: 12px 6px; }
+  .hnr-wordbook-nav { margin: -14px -14px 0; padding: 8px 14px; }
+  .hnr-wordbook-columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+}
+
+@container hnr-reader (max-width: 520px) {
+  .hnr-wordbook-toolbar { gap: 8px; }
+  .hnr-wordbook-search { flex: 1 1 100%; }
+  .hnr-wordbook-icon, .hnr-wordbook-row .hnr-word-sound { width: 34px; height: 34px; }
+  .hnr-wordbook-nav { flex-wrap: wrap; }
+  .hnr-wordbook-hero { padding: 14px; }
+  .hnr-wordbook-hero-word { font-size: 20px; }
+  .hnr-wordbook-tabs { gap: 5px; }
+  .hnr-wordbook-tab { padding: 0 9px; }
 }

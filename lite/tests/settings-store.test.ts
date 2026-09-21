@@ -74,4 +74,14 @@ describe("reader settings", () => {
       "\"Noto Reader Test\",system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif",
     );
   });
+
+  it("defaults comment vocabulary off and normalizes the level choice", () => {
+    expect(DEFAULT_SETTINGS.vocabularyEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.vocabularyLevels).toBe("cet6");
+    expect(normalizeSettings({ schemaVersion: 1 })).toMatchObject({ vocabularyEnabled: false, vocabularyLevels: "cet6" });
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, vocabularyEnabled: true, vocabularyLevels: "cet6+" }))
+      .toMatchObject({ vocabularyEnabled: true, vocabularyLevels: "cet6+" });
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, vocabularyLevels: "cet4", vocabularyEnabled: "yes" }))
+      .toMatchObject({ vocabularyEnabled: false, vocabularyLevels: "cet6" });
+  });
 });
