@@ -1,13 +1,13 @@
 import type { VocabularyWord } from "./model";
 import { addWord } from "./wordbook";
-import { bookmarkButton, soundButton } from "./word-popup";
+import { bindWordCard, bookmarkButton, soundButton, type WordCardHooks } from "./word-popup";
 
 export interface VocabularySectionOptions {
   readonly sourceUrl: string;
   readonly onSaved: () => void;
   readonly onExpandChange?: ((expanded: boolean) => void) | undefined;
   /** Absent on touch or narrow viewports, where hovering is not available. */
-  readonly openWordPopup?: ((anchor: HTMLElement, word: VocabularyWord) => () => void) | undefined;
+  readonly openWordPopup?: ((anchor: HTMLElement, word: VocabularyWord, hooks: WordCardHooks) => () => void) | undefined;
 }
 
 const COLLAPSED_WORDS = 3;
@@ -112,22 +112,11 @@ export class VocabularySection {
     if (index >= COLLAPSED_WORDS) row.hidden = !this.#expanded;
     const label = element(document, "span", "hnr-word-label", word.word);
     label.title = word.example;
-    let dismiss: (() => void) | undefined;
     if (this.#options.openWordPopup) {
       const open = this.#options.openWordPopup;
       label.tabIndex = 0;
-      const show = (): void => {
-        dismiss?.();
-        dismiss = open(label, word);
-      };
-      const hide = (): void => {
-        dismiss?.();
-        dismiss = undefined;
-      };
-      label.addEventListener("pointerenter", show);
-      label.addEventListener("focus", show);
-      label.addEventListener("pointerleave", hide);
-      label.addEventListener("blur", hide);
+      // Same dwell and grace as a marked word in the comment, so the card behaves the same everywhere.
+      bindWordCard(label, (hooks) => open(label, word, hooks));
     }
     const save = bookmarkButton(document, word);
     save.addEventListener("click", (event) => {

@@ -899,17 +899,35 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
 /* The brush is an inline <svg> child rather than the reference's data: background image, because the
    host's CSP (`img-src 'self' https://account.ycombinator.com`) blocks every data: URL and the
    reference brush therefore never painted. `isolation` gives each mark its own stacking context so the
-   negative-z brush paints above the band below and underneath the word itself. */
+   brush paints underneath the word itself. */
 mark[data-vocabulary-ink] { position: relative; isolation: isolate; }
 mark[data-vocabulary-ink] > .hnr-vocabulary-brush { position: absolute; z-index: -1; bottom: .05em; left: 0; width: 100%; height: 1.45em; overflow: visible; pointer-events: none; }
 
-/* Vocabulary ink, ported from the reference userscript: the strokes are the inline SVG drawn by
-   highlights.ts. This rule is the guaranteed floor, so the mark stays visible even if that SVG is
-   ever lost. Both copies of the comment text are listed, because bilingual mode shows the section the
-   translation built rather than `.hnr-original-text`, and the selector is scoped through
-   .hnr-comment-body so the translation-theme rules above cannot reset it. */
+/* A wrapped mark has one box per line and the brush is a single child that can only sit behind one of
+   them, so those marks are painted with backgrounds instead: `box-decoration-break: clone` — the
+   reference's own setting — repeats the ink on every fragment. Two gradients stand in for the two
+   strokes at the same strengths as the SVG, fading at both ends so the ink tapers like a brush.
+   Gradients are not fetched images, so the host CSP that blocks the reference's data: URL allows them. */
+mark[data-vocabulary-ink][data-vocabulary-wrap] {
+  background-image:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--hnr-vocabulary-ink) 24%, transparent) 6%, color-mix(in srgb, var(--hnr-vocabulary-ink) 24%, transparent) 94%, transparent),
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--hnr-vocabulary-ink) 14%, transparent) 10%, color-mix(in srgb, var(--hnr-vocabulary-ink) 14%, transparent) 90%, transparent);
+  background-repeat: no-repeat;
+  background-size: 100% .5em, 100% .24em;
+  background-position: 0 92%, 0 100%;
+}
+mark[data-vocabulary-ink][data-vocabulary-wrap] > .hnr-vocabulary-brush { display: none; }
+
+/* The stroke is the whole highlight: no tinted band and no underline of its own, so a marked word reads
+   as brushed rather than boxed. This rule still has to exist, because the browser's own `mark` style
+   paints a yellow band that has to be turned off. All four copies of the comment text are listed —
+   bilingual mode shows the sections the translation built rather than `.hnr-original-text`, and
+   translated-only mode shows just the Chinese — and the selector is scoped through .hnr-comment-body so
+   the translation-theme rules above cannot decorate the mark on their own. */
 .hnr-comment-body .hnr-original-text mark[data-vocabulary-ink],
-.hnr-comment-body .hnr-bilingual-original-section mark[data-vocabulary-ink] { color: inherit; background-color: color-mix(in srgb, var(--hnr-vocabulary-ink, transparent) 18%, transparent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--hnr-vocabulary-ink, currentColor) 70%, transparent); text-decoration-thickness: 1px; text-underline-offset: 2px; border-radius: 3px; padding: 0 1px; }
+.hnr-comment-body .hnr-bilingual-original-section mark[data-vocabulary-ink],
+.hnr-comment-body .hnr-bilingual-translation-section mark[data-vocabulary-ink],
+.hnr-comment-body .hnr-translated-text mark[data-vocabulary-ink] { color: inherit; background-color: transparent; text-decoration: none; padding: 0; }
 
 .hnr-word-popup { position: fixed; z-index: 19; width: min(300px, calc(100vw - 16px)); }
 .hnr-word-popup[hidden] { display: none !important; }

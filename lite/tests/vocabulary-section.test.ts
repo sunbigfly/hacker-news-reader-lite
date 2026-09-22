@@ -100,6 +100,34 @@ describe("comment vocabulary section", () => {
     expect(root.querySelector(".hnr-word-bookmark")?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("waits for the same dwell before opening a strip row's card", () => {
+    vi.useFakeTimers();
+    try {
+      const openWordPopup = vi.fn<(anchor: HTMLElement, word: VocabularyWord, hooks: unknown) => () => void>(() => () => {});
+      const { root, section } = mount({ openWordPopup });
+      section.setWords([word("undermine")]);
+      const label = root.querySelector<HTMLElement>(".hnr-word-label");
+      if (!label) throw new Error("fixture missing row label");
+
+      // Sweeping the pointer across the strip must not open anything.
+      label.dispatchEvent(new PointerEvent("pointerenter"));
+      expect(openWordPopup).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(499);
+      expect(openWordPopup).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(openWordPopup).toHaveBeenCalledTimes(1);
+      expect(label.tabIndex).toBe(0);
+      // The card is told how to keep itself alive when the pointer moves into it.
+      expect(openWordPopup.mock.calls[0]?.[2]).toMatchObject({
+        onPointerEnter: expect.any(Function) as unknown,
+        onPointerLeave: expect.any(Function) as unknown,
+      });
+      section.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not open a hover card when the viewport cannot hover", () => {
     const openWordPopup = vi.fn(() => () => {});
     const { root, section } = mount();

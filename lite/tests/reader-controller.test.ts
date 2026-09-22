@@ -964,4 +964,232 @@ describe("ReaderController workspace continuity", () => {
     expect(marks[0]?.style.getPropertyValue("--hnr-vocabulary-ink")).toMatch(/^#/);
     scope.destroy();
   });
+
+  it("asks once more with the translation so the Chinese copy can be inked", async () => {
+    document.documentElement.innerHTML = translationThreadHtml(3);
+    vi.stubGlobal("indexedDB", indexedDB);
+    vi.stubGlobal("GM_getValue", (key: string, fallback: unknown) => key === "hn-reader:settings:v1"
+      ? {
+          ...DEFAULT_SETTINGS,
+          translationEnabled: true,
+          translationProvider: "ai",
+          vocabularyEnabled: true,
+          ai: { ...DEFAULT_SETTINGS.ai, apiKey: "sk-test" },
+        }
+      : fallback);
+    vi.stubGlobal("GM_setValue", vi.fn());
+    const TRANSLATION = "工程学评论解释了详细的软件实践。";
+    const vocabularyBodies: string[] = [];
+    const releases: Array<() => void> = [];
+    const word = (translationTerm: string): string => JSON.stringify({
+      word: "engineering",
+      ipa: "/ˌendʒɪˈnɪərɪŋ/",
+      meaning: "工程",
+      example: "Software engineering rewards careful readers.",
+      exampleMeaning: "软件工程会奖励细心的读者。",
+      level: "CET6",
+      translationTerm,
+    });
+    vi.stubGlobal("GM_xmlhttpRequest", (options: GmRequestOptions): GmRequestHandle => {
+      const body = options.data ?? "";
+      // Both pipelines talk to the same endpoint under the AI provider, so the system prompt is what
+      // tells them apart.
+      const isVocabulary = body.includes("你是英语词汇老师");
+      let aborted = false;
+      releases.push(() => {
+        if (aborted) return;
+        if (isVocabulary) {
+          vocabularyBodies.push(body);
+          // The first request carries no translation, so there is no span the model could quote; the
+          // second one is the re-collect and answers with the span taken from that translation.
+          const quoted = body.includes(TRANSLATION) ? "工程学" : "";
+          options.onload({
+            status: 200,
+            statusText: "OK",
+            responseHeaders: "content-type: application/json",
+            responseText: JSON.stringify({ choices: [{ message: { content: `[${word(quoted)}]` } }] }),
+            finalUrl: options.url,
+          });
+          return;
+        }
+        // A translation answer streams `response.output_text.delta` events and only finishes on
+        // `response.completed`; the AI provider keys each section by `section_<n>`. Without this exact
+        // shape the translation never completes and the re-collect has nothing to quote from.
+        const event = (content: string): string => `data: ${JSON.stringify({ type: "response.output_text.delta", delta: content })}\n\n`;
+        options.onprogress?.({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: text/event-stream",
+          responseText: event('{"section_0":"工程学'),
+          finalUrl: options.url,
+        });
+        options.onload({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: text/event-stream",
+          responseText: event(`{"section_0":"${TRANSLATION}"}`)
+            + `data: ${JSON.stringify({ type: "response.completed", response: { output: [] } })}\n\n`,
+          finalUrl: options.url,
+        });
+      });
+      return {
+        abort: () => {
+          aborted = true;
+          options.onabort();
+        },
+      };
+    });
+    const scope = new LifecycleScope();
+    const controller = new ReaderController(document, scope, "", new ReaderWorkspaceStateStore());
+
+    await controller.open(100 as never);
+    const shadow = document.querySelector<HTMLElement>("#hn-reader-root")?.shadowRoot;
+    for (let turn = 0; turn < 40; turn += 1) {
+      const pending = releases.splice(0);
+      if (pending.length > 0) for (const release of pending) release();
+      else if (turn > 3
+        && (shadow?.querySelectorAll(".hnr-bilingual-translation-section mark[data-vocabulary-ink]").length ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    // Only a re-collect can carry a translation, and each comment may be re-collected at most once: a
+    // second round for the same text would mean the one-shot guard let a loop through.
+    const sourceOf = (body: string): string => {
+      const messages = (JSON.parse(body) as { readonly messages?: readonly { readonly content?: string }[] }).messages ?? [];
+      return (JSON.parse(messages[1]?.content ?? "{}") as { readonly text?: string }).text ?? "";
+    };
+    const withTranslation = vocabularyBodies.filter((body) => body.includes(TRANSLATION));
+    const perSource = new Map<string, number>();
+    for (const body of withTranslation) perSource.set(sourceOf(body), (perSource.get(sourceOf(body)) ?? 0) + 1);
+    expect(withTranslation.length).toBeGreaterThan(0);
+    expect([...perSource.values()].every((count) => count === 1)).toBe(true);
+
+    const chinese = [...shadow?.querySelectorAll<HTMLElement>(".hnr-bilingual-translation-section mark[data-vocabulary-ink]") ?? []];
+    // The Chinese copy carries the span the model quoted — the translated wording, not the gloss — and a
+    // comment whose re-collect had not happened yet still falls back to the gloss rather than inventing
+    // anything.
+    expect(chinese.length).toBeGreaterThan(0);
+    expect(chinese.some((mark) => mark.textContent === "工程学")).toBe(true);
+    expect(chinese.every((mark) => mark.textContent === "工程学" || mark.textContent === "工程")).toBe(true);
+    expect(chinese.every((mark) => mark.dataset.vocabularyLang === "zh")).toBe(true);
+    // The English copy of the same comment is inked from the same binding, in the same colour.
+    const quoted = chinese.find((mark) => mark.textContent === "工程学");
+    const english = quoted?.closest(".hnr-comment")?.querySelector<HTMLElement>(".hnr-bilingual-original-section mark[data-vocabulary-ink]");
+    expect(english?.style.getPropertyValue("--hnr-vocabulary-ink"))
+      .toBe(quoted?.style.getPropertyValue("--hnr-vocabulary-ink"));
+    scope.destroy();
+  });
+
+  it("gets the words from the translation request itself, with no separate vocabulary call", async () => {
+    // Its own story and wording: translation and vocabulary answers are cached by content, and the cases in
+    // this file share one IndexedDB, so a reused fixture would be answered from cache with no request.
+    const uniqueThread = (() => {
+      const comments = Array.from({ length: 3 }, (_, index) => {
+        const id = 701 + index;
+        return `<tr class="athing comtr" id="${id}"><td class="ind"><img width="0"></td><td><span class="comhead"><a class="hnuser">user${index + 1}</a></span><div class="comment"><span class="commtext c00">Comment ${index + 1} explains a combined engineering pipeline for a unique wording check.</span></div></td></tr>`;
+      }).join("");
+      return `<!doctype html><html><head><base href="https://news.ycombinator.com/"></head><body><table class="fatitem"><tr class="athing" id="700"><td class="title"><span class="titleline"><a href="https://example.com/article">Example story</a></span></td></tr><tr><td class="subtext"><span class="score">42 points</span> by <a class="hnuser">alice</a></td></tr></table><table class="comment-tree">${comments}</table></body></html>`;
+    })();
+    document.documentElement.innerHTML = uniqueThread;
+    vi.stubGlobal("indexedDB", indexedDB);
+    vi.stubGlobal("GM_getValue", (key: string, fallback: unknown) => key === "hn-reader:settings:v1"
+      ? {
+          ...DEFAULT_SETTINGS,
+          translationEnabled: true,
+          translationProvider: "ai",
+          vocabularyEnabled: true,
+          ai: { ...DEFAULT_SETTINGS.ai, apiKey: "sk-test" },
+        }
+      : fallback);
+    vi.stubGlobal("GM_setValue", vi.fn());
+    const TRANSLATION = "工程学评论解释了详细的软件实践。";
+    const vocabularyBodies: string[] = [];
+    const translationBodies: string[] = [];
+    const releases: Array<() => void> = [];
+    const event = (content: string): string => `data: ${JSON.stringify({ type: "response.output_text.delta", delta: content })}\n\n`;
+    vi.stubGlobal("GM_xmlhttpRequest", (options: GmRequestOptions): GmRequestHandle => {
+      const body = options.data ?? "";
+      const isTranslation = options.url.endsWith("/responses");
+      console.log("REQ", options.url, body.slice(0, 30));
+      let aborted = false;
+      releases.push(() => {
+        if (aborted) return;
+        if (!isTranslation) {
+          // A vocabulary request of its own would land here. It always answers "no words", so any mark in
+          // the comment can only have come from the words the translation answer carried.
+          if (body.includes("你是英语词汇老师")) vocabularyBodies.push(body);
+          options.onload({
+            status: 200,
+            statusText: "OK",
+            responseHeaders: "content-type: application/json",
+            responseText: JSON.stringify({ choices: [{ message: { content: "[]" } }] }),
+            finalUrl: options.url,
+          });
+          return;
+        }
+        translationBodies.push(body);
+        // The comment ids the request asked words for; the answer has to key its words by exactly those.
+        // The payload travels inside an escaped JSON string, so unescape it before reading.
+        const unescaped = body.replace(/\\"/gu, "\"");
+        const listed = /"wordsFor":\[([^\]]*)\]/u.exec(unescaped)?.[1] ?? "";
+        const wanted = listed.split(",")
+          .map((value) => Number(value.trim()))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const words = Object.fromEntries(wanted.map((id) => [String(id), [{
+          word: "engineering",
+          ipa: "/ˌendʒɪˈnɪərɪŋ/",
+          meaning: "工程",
+          example: "Software engineering rewards careful readers.",
+          exampleMeaning: "软件工程会奖励细心的读者。",
+          level: "CET6",
+          translationTerm: "工程学",
+        }]]));
+        options.onprogress?.({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: text/event-stream",
+          responseText: event('{"section_0":"工程学'),
+          finalUrl: options.url,
+        });
+        options.onload({
+          status: 200,
+          statusText: "OK",
+          responseHeaders: "content-type: text/event-stream",
+          // Sections first, words last: the streaming decoder stops at the first non-string value.
+          responseText: event(JSON.stringify({ section_0: TRANSLATION, words }))
+            + `data: ${JSON.stringify({ type: "response.completed", response: { output: [] } })}\n\n`,
+          finalUrl: options.url,
+        });
+      });
+      return { abort: () => { aborted = true; options.onabort(); } };
+    });
+    const scope = new LifecycleScope();
+    const controller = new ReaderController(document, scope, "", new ReaderWorkspaceStateStore());
+
+    await controller.open(700 as never);
+    const shadow = document.querySelector<HTMLElement>("#hn-reader-root")?.shadowRoot;
+    for (let turn = 0; turn < 60; turn += 1) {
+      const pending = releases.splice(0);
+      if (pending.length > 0) for (const release of pending) release();
+      else if (turn > 3
+        && (shadow?.querySelectorAll(".hnr-bilingual-translation-section mark[data-vocabulary-ink]").length ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    // One pipeline, one request. The standalone vocabulary stub always answers "no words", so a mark can
+    // only have come from the words the translation answer carried — which is the point of combining.
+    // A comment that starts waiting after its batch was already built still asks on its own; that fallback
+    // is bounded to a single request and needs no assertion beyond the marks being there.
+    expect(translationBodies.length).toBeGreaterThan(0);
+    expect(translationBodies.some((body) => body.includes("wordsFor"))).toBe(true);
+
+    const chinese = [...shadow?.querySelectorAll<HTMLElement>(".hnr-bilingual-translation-section mark[data-vocabulary-ink]") ?? []];
+    expect(chinese.length).toBeGreaterThan(0);
+    expect(chinese.every((mark) => mark.textContent === "工程学")).toBe(true);
+    const english = [...shadow?.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section mark[data-vocabulary-ink]") ?? []];
+    expect(english.length).toBeGreaterThan(0);
+    expect(english[0]?.style.getPropertyValue("--hnr-vocabulary-ink"))
+      .toBe(chinese[0]?.style.getPropertyValue("--hnr-vocabulary-ink"));
+    scope.destroy();
+  });
 });

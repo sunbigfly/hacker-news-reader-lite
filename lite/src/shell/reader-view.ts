@@ -27,9 +27,9 @@ import type {
 } from "../summary/summary-service";
 import { READER_TRANSLATION_THEMES, type ReaderTranslationTheme } from "../translation/translation-presentation";
 import { VocabularySection } from "../vocabulary/comment-vocabulary";
-import { VocabularyHighlights } from "../vocabulary/highlights";
+import { inkTarget, VocabularyHighlights, type VocabularyInkTarget } from "../vocabulary/highlights";
 import type { VocabularyWord } from "../vocabulary/model";
-import { showWordPopup } from "../vocabulary/word-popup";
+import { bindWordCard, showWordPopup } from "../vocabulary/word-popup";
 import type { WordLookupService } from "../vocabulary/lookup";
 import { WordbookPanel } from "../vocabulary/wordbook-panel";
 import type { SavedWord } from "../vocabulary/wordbook";
@@ -124,28 +124,37 @@ interface VocabularyMount {
 }
 
 /**
- * Every copy of the English text the reader currently shows. In original mode that is the single
- * `.hnr-original-text`; in bilingual mode the original element is hidden and the shown copy is what the
- * translation built instead, which is a different set of nodes. That copy holds **one original section
- * per paragraph** of the comment, so all of them have to be inked, not just the first. Translated-only
- * mode shows no English at all, so there is nothing to ink.
+ * Every copy of the comment text the reader currently shows, with the language that lives in each.
+ *
+ * In original mode that is the single `.hnr-original-text`. In bilingual mode the original element is
+ * hidden and the shown copy is what the translation built instead, which is a different set of nodes:
+ * that copy holds **one original section and one translation section per paragraph**, so all of them
+ * have to be inked, not just the first. Translated-only mode shows just the Chinese, which still gets
+ * the glosses of the collected words.
  */
-function vocabularyInkRoots(body: HTMLElement): readonly HTMLElement[] {
+function vocabularyInkTargets(body: HTMLElement): readonly VocabularyInkTarget[] {
   // Direct children are matched by class rather than with `:scope >`: this query runs inside a shadow
   // tree, where `:scope` is not dependable across engines.
   const visibleChild = (name: string): HTMLElement | undefined => [...body.children].find(
     (element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains(name) && !element.hidden,
   );
   const original = visibleChild("hnr-original-text");
-  if (original) return Object.freeze([original]);
+  if (original) return Object.freeze([inkTarget(original)]);
+  const translated = visibleChild("hnr-translated-text");
+  if (translated) return Object.freeze([inkTarget(translated, "zh")]);
   const bilingual = visibleChild("hnr-bilingual-text");
-  return bilingual
-    ? Object.freeze([...bilingual.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section")])
-    : Object.freeze([]);
+  if (!bilingual) return Object.freeze([]);
+  return Object.freeze([...bilingual.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section, .hnr-bilingual-translation-section")]
+    .map((section) => inkTarget(section, section.classList.contains("hnr-bilingual-translation-section") ? "zh" : "en")));
 }
 
+/**
+ * What identifies one binding for the DOM. The Chinese span is part of it: a re-collect that comes back
+ * with the same words but newly quoted spans is a different answer, and leaving the older ink in place
+ * would keep the gloss marks the span was meant to replace.
+ */
 function vocabularyBindingIdentity(binding: ReaderVocabularyBinding): string {
-  return `${binding.error ?? ""}|${binding.words.map((word) => word.word).join(",")}`;
+  return `${binding.error ?? ""}|${binding.words.map((word) => `${word.word}~${word.translationTerm ?? ""}`).join(",")}`;
 }
 
 export interface ReaderWordbookQuery {
@@ -798,7 +807,15 @@ export class ReaderView {
         else this.#vocabularyExpanded.delete(id);
       },
       openWordPopup: this.#supportsWordPopup()
-        ? (anchor, word) => showWordPopup({ container: this.#commentViewport, anchor, word, sourceUrl })
+        // The strip rows get the same dwell and grace as the marked words inside the comment.
+        ? (anchor, word, hooks) => showWordPopup({
+            container: this.#commentViewport,
+            anchor,
+            word,
+            sourceUrl,
+            onPointerEnter: hooks.onPointerEnter,
+            onPointerLeave: hooks.onPointerLeave,
+          })
         : undefined,
     });
     const mount: VocabularyMount = {
@@ -843,8 +860,8 @@ export class ReaderView {
 
   /** Re-inks one mounted comment against whatever copy of its text is visible right now. */
   #inkVocabulary(mount: VocabularyMount, words: readonly VocabularyWord[]): void {
-    const roots = vocabularyInkRoots(mount.body);
-    if (roots.length > 0) mount.highlights.apply(roots, words);
+    const targets = vocabularyInkTargets(mount.body);
+    if (targets.length > 0) mount.highlights.apply(targets, words);
     else mount.highlights.clear();
   }
 
@@ -864,19 +881,14 @@ export class ReaderView {
   #bindVocabularyMark(mark: HTMLElement, word: VocabularyWord, sourceUrl: string): void {
     if (!this.#supportsWordPopup()) return;
     mark.tabIndex = 0;
-    let dismiss: (() => void) | undefined;
-    const close = (): void => {
-      dismiss?.();
-      dismiss = undefined;
-    };
-    const open = (): void => {
-      close();
-      dismiss = showWordPopup({ container: this.#commentViewport, anchor: mark, word, sourceUrl });
-    };
-    mark.addEventListener("pointerenter", open);
-    mark.addEventListener("focus", open);
-    mark.addEventListener("pointerleave", close);
-    mark.addEventListener("blur", close);
+    bindWordCard(mark, (hooks) => showWordPopup({
+      container: this.#commentViewport,
+      anchor: mark,
+      word,
+      sourceUrl,
+      onPointerEnter: hooks.onPointerEnter,
+      onPointerLeave: hooks.onPointerLeave,
+    }));
   }
 
   #supportsWordPopup(): boolean {
@@ -983,6 +995,15 @@ export class ReaderView {
         html: translation.html,
         bilingualHtml: translation.bilingualHtml,
       }] as const));
+  }
+
+  /**
+   * The Chinese stored for one comment, whether or not the translation has finished streaming. Vocabulary
+   * needs exactly what the reader can see right now, and `translationRecords` deliberately withholds
+   * anything unfinished because the offline document may not be written from a partial translation.
+   */
+  translationText(id: CommentId): string {
+    return this.#translations.get(id)?.text ?? "";
   }
 
   #syncMountedTranslation(id: CommentId): void {

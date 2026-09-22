@@ -205,6 +205,22 @@
       "target": "lite/src/vocabulary/ecdict-data.ts",
       "status": "direct-copy",
       "tests": ["lite/tests/vocabulary-ecdict.test.ts"]
+    },
+    {
+      "source": "src/wordbook-chinese.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "dd1f3c3255cd75dae47f8e000725dfcdb339d527f42c0ad83e1c9133db297659",
+      "target": "lite/src/vocabulary/gloss.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-gloss.test.ts"]
+    },
+    {
+      "source": "src/translation/combined-vocabulary.ts",
+      "sourceRepository": "https://github.com/sunbigfly/forum-translater",
+      "sourceSha256": "5f0afa05abfe719fc531ce9a7c6a352b3e6c9dfd5ef17c9b81eb746c29c5092e",
+      "target": "lite/src/translation/translation-service.ts",
+      "status": "adapted",
+      "tests": ["lite/tests/vocabulary-service.test.ts", "lite/tests/reader-controller.test.ts"]
     }
   ]
 }

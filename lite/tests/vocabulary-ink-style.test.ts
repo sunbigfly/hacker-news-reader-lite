@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { VocabularyHighlights } from "../src/vocabulary/highlights";
+import { inkTarget, VocabularyHighlights } from "../src/vocabulary/highlights";
 
 const CSS = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
 
@@ -110,22 +110,49 @@ describe("vocabulary ink cascade", () => {
     expect(specificity(".hnr-comment-body .hnr-original-text mark[data-vocabulary-ink]")).toBe(301);
   });
 
-  it("keeps the mark neutral so the ported brush stroke is what the reader sees", () => {
-    const mark = cascadeWinner(/text-decoration\s*:/u, selectsMark);
-    expect(mark?.body).toContain("text-decoration: underline");
-    // The band and underline are the guaranteed floor if the brush image never paints, and the
-    // scoped selector must outrank the translation-theme rule that decorates an ancestor path.
+  it("keeps the mark neutral so the brush stroke is the only thing the reader sees", () => {
     const theme = ':host([data-translation-theme="underline"]) .hnr-bilingual-text .hnr-bilingual-translation-section';
-    expect(mark?.specificity).toBeGreaterThanOrEqual(specificity(theme));
+    // The browser's own `mark` style paints a yellow band, and an earlier revision added a tinted band
+    // plus an underline of ours; both would draw a second layer over the stroke.
+    const band = cascadeWinner(/background-color\s*:/u, selectsMark);
+    expect(band?.body).toContain("background-color: transparent");
+    expect(band?.body).not.toContain("color-mix");
+    const decoration = cascadeWinner(/text-decoration\s*:/u, selectsMark);
+    expect(decoration?.body).toContain("text-decoration: none");
+    expect(decoration?.body).not.toContain("text-decoration: underline");
+    expect(cascadeWinner(/padding\s*:/u, selectsMark)?.body).toContain("padding: 0");
+    // The neutralising rule must still outrank the translation-theme rule that decorates the section.
+    expect(band?.specificity).toBeGreaterThanOrEqual(specificity(theme));
   });
 
-  it("inks the copy bilingual mode shows, not only the hidden original element", () => {
+  it("neutralises the mark in every copy the reader can be looking at", () => {
     const theme = ':host([data-translation-theme="underline"]) .hnr-bilingual-text .hnr-bilingual-translation-section';
-    const winner = cascadeWinner(/background-color\s*:/u, (selector) => selectsMark(selector) && selector.includes(".hnr-bilingual-original-section"));
-    // The bilingual block is built from the translation payload, so its original section is the only
-    // place the ink can live while the reader is looking at that copy.
-    expect(winner?.body).toContain("text-decoration: underline");
-    expect(winner?.specificity).toBeGreaterThanOrEqual(specificity(theme));
+    for (const copy of [".hnr-original-text", ".hnr-bilingual-original-section", ".hnr-bilingual-translation-section", ".hnr-translated-text"]) {
+      const winner = cascadeWinner(/background-color\s*:/u, (selector) => selectsMark(selector) && selector.includes(copy));
+      // Bilingual mode rebuilds the text from the translation payload, and translated-only mode shows
+      // just the Chinese, so each of those copies needs the same "no band, no underline" rule.
+      expect(winner?.body, copy).toContain("background-color: transparent");
+      expect(winner?.specificity, copy).toBeGreaterThanOrEqual(specificity(theme));
+    }
+  });
+
+  it("paints a wrapped mark with per-fragment backgrounds instead of the single brush child", () => {
+    const wrapped = cssRule("mark[data-vocabulary-ink][data-vocabulary-wrap]");
+    // The brush is one child and can only sit behind one line box, so a wrapped mark is painted by the
+    // stylesheet; `box-decoration-break: clone` is what repeats the ink on every fragment.
+    expect(cssRule("mark[data-vocabulary-ink]")?.body).toContain("position: relative");
+    expect(wrapped?.body).toContain("linear-gradient");
+    expect(wrapped?.body).toContain("background-repeat: no-repeat");
+    // Gradients are not fetched images: the host CSP that blocks the reference's data: URL allows them.
+    expect(wrapped?.body).not.toContain("data:");
+    expect(wrapped?.body).not.toContain("url(");
+    // Two gradients stand in for the reference's two strokes, at its own strengths.
+    expect(wrapped?.body).toContain("24%");
+    expect(wrapped?.body).toContain("14%");
+    expect(cssRule("mark[data-vocabulary-ink][data-vocabulary-wrap] > .hnr-vocabulary-brush")?.body)
+      .toContain("display: none");
+    // A wrapped mark stays neutral: the ink is the gradient, never a box.
+    expect(cascadeWinner(/background-color\s*:/u, selectsMark)?.body).toContain("background-color: transparent");
   });
 
   it("draws the reference brush as inline SVG, because the host CSP blocks data: images", () => {
@@ -133,7 +160,7 @@ describe("vocabulary ink cascade", () => {
     const original = document.querySelector<HTMLElement>(".hnr-original-text");
     if (!original) throw new Error("fixture missing root");
     const seen: HTMLElement[] = [];
-    new VocabularyHighlights((mark) => seen.push(mark)).apply(original, [{
+    new VocabularyHighlights((mark) => seen.push(mark)).apply([inkTarget(original)], [{
       word: "far-fetched",
       ipa: "/ˌfɑːr ˈfetʃt/",
       meaning: "牵强的",

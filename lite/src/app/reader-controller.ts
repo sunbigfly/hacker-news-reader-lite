@@ -66,10 +66,11 @@ import {
   ThreadSnapshotRepository,
   type OptimisticThreadSnapshot,
 } from "../thread/thread-snapshot-repository";
-import { type TranslationInput, type TranslationOutput } from "../translation/translation-service";
+import { type TranslationInput, type TranslationOutput, type TranslationVocabularyRequest } from "../translation/translation-service";
 import { TranslationRuntime } from "../translation/translation-runtime";
 import type { VocabularyWord } from "../vocabulary/model";
 import { WordLookupService } from "../vocabulary/lookup";
+import { vocabularyCombinedIdentity, vocabularyCombinedInstruction } from "../vocabulary/prompt";
 import { VocabularyService, type VocabularyCacheEntry } from "../vocabulary/service";
 import { readWordbook, removeWord, type SavedWord } from "../vocabulary/wordbook";
 
@@ -206,6 +207,12 @@ class ReaderSession {
   #offlineProgress: OfflineDownloadProgress | null = null;
   readonly #vocabularyStates = new Map<CommentId, ReaderVocabularyBinding>();
   readonly #vocabularyRequested = new Set<CommentId>();
+  /** Comments already collected once more against a translation; the retry happens at most once each. */
+  readonly #vocabularyTranslated = new Set<CommentId>();
+  /** Comments whose words were handed to the translation request instead of a request of their own. */
+  readonly #vocabularyCombined = new Set<CommentId>();
+  /** Words a translation answer carried, held until that comment's translation is finished and can be quoted. */
+  readonly #combinedWords = new Map<CommentId, unknown>();
   #offlineHistoryEntries: readonly OfflineDownloadHistoryEntry[] = Object.freeze([]);
   #automaticTitleTranslationStarted = false;
   #viewportTranslationIdentity = "";
@@ -688,7 +695,7 @@ class ReaderSession {
         ...(refreshing ? { forceRefresh: true } : {}),
       }], this.#settings, controller.signal, "interactive", undefined, (result) => {
         if (!refreshing || result.complete) this.#renderTranslation(result);
-      }))[0];
+      }, this.#translationVocabulary()))[0];
       if (!output) {
         this.view.setStatus(`评论 #${id} 无需翻译或文本过短。`, "neutral");
         return;
@@ -761,7 +768,7 @@ class ReaderSession {
     try {
       const outputs = await this.translationRuntime.service.translateMany(inputs, this.#settings, controller.signal, "visible", (complete, total) => {
         if (run === this.#visibleTranslationRun) this.view.setStatus(`翻译进度 ${complete}/${total}…`, "busy");
-      }, (output) => this.#renderTranslation(output));
+      }, (output) => this.#renderTranslation(output), this.#translationVocabulary());
       if (run === this.#visibleTranslationRun) {
         this.view.setStatus(`已翻译 ${outputs.length} 条；无需翻译的短句保持原文。`, "success");
       }
@@ -771,6 +778,8 @@ class ReaderSession {
       }
     } finally {
       this.#visibleTranslationControllers.delete(controller);
+      // Anything still staged waited for a translation that did not arrive; the words are kept anyway.
+      this.#settleStagedVocabulary();
       for (const input of inputs) this.#visibleTranslationRequested.delete(input.id);
       if (run === this.#visibleTranslationRun) {
         this.view.setCommandBusy("translate", false);
@@ -927,6 +936,9 @@ class ReaderSession {
   #resetVocabulary(): void {
     this.#vocabularyStates.clear();
     this.#vocabularyRequested.clear();
+    this.#vocabularyTranslated.clear();
+    this.#vocabularyCombined.clear();
+    this.#combinedWords.clear();
     this.view.clearVocabulary();
     this.view.setVocabularyEnabled(false);
   }
@@ -973,18 +985,32 @@ class ReaderSession {
     if (this.scope.destroyed || !this.#settings.vocabularyEnabled || this.#vocabularyRequested.has(id)) return;
     const comment = this.tree.get(id);
     if (!comment) return;
+    // This comment's words can come back inside the translation request that is about to run for it, so
+    // asking separately now would pay for the same comment twice. The translation pipeline settles it.
+    if (this.#deferVocabularyToTranslation(id)) {
+      this.#vocabularyCombined.add(id);
+      return;
+    }
     this.#vocabularyRequested.add(id);
     const source = this.preheater.get(id)?.translationText ?? comment.html;
+    // Only a finished translation is worth quoting, and only a finished one is quoted: the text stored
+    // while a translation streams is the loading or failure placeholder, which no span can come from.
+    // `#settleVocabularyAfterTranslation` asks again once the real Chinese exists.
+    const translation = this.view.translationRecords().has(id) ? this.view.translationText(id) : undefined;
     const signal = this.scope.abortController(new Error("Reader 已关闭")).signal;
     try {
       const words = await this.vocabulary.collect(source, {
         priority: this.view.viewportCommentIds().includes(id) ? "visible" : "prefetch",
+        ...(translation ? { translation } : {}),
       });
       if (this.scope.destroyed || !this.#settings.vocabularyEnabled) return;
       const binding: ReaderVocabularyBinding = Object.freeze({ words });
       this.#vocabularyStates.set(id, binding);
       this.view.applyVocabulary(id, binding);
       if (this.#isLocalBuild()) this.#reportVocabularyDiagnostics(id, words, source);
+      // The translation may have landed while this answer was in flight, which is the other half of the
+      // ordering the settle step has to cover.
+      this.#settleVocabularyAfterTranslation(id);
     } catch (error) {
       if (this.scope.destroyed || signal.aborted) return;
       const binding: ReaderVocabularyBinding = Object.freeze({
@@ -1307,6 +1333,7 @@ class ReaderSession {
             this.view.setStatus(`滚动预翻译 ${rendered}/${inputs.length}…`, "busy");
           }
         },
+        this.#translationVocabulary(),
       );
       completed = true;
       if (
@@ -1359,7 +1386,118 @@ class ReaderSession {
   }
 
   #renderTranslation(output: TranslationOutput): void {
-    this.view.setTranslation(output.id as CommentId, output.text, output.html, output.bilingualHtml, output.complete);
+    const id = output.id as CommentId;
+    this.view.setTranslation(id, output.text, output.html, output.bilingualHtml, output.complete);
+    this.#settleVocabularyAfterTranslation(id);
+  }
+
+  /**
+   * Settles a comment's vocabulary once its translation exists.
+   *
+   * Words that came back inside the translation answer are published here rather than the moment they
+   * arrive: the model streams the sections, so the words are delivered before the finished Chinese the
+   * spans have to be quoted from. A comment the batch never answered for — the model left its key out, or
+   * the batch did not cover it — falls back to a request of its own, and a comment whose words were
+   * answered before its translation existed gets one more request so its spans can be quoted.
+   *
+   * Only a finished translation is quoted from: while one streams, the rendered text still carries the
+   * loading and failure placeholders, and a span taken from those would mark text nobody ever reads.
+   */
+  #settleVocabularyAfterTranslation(id: CommentId): void {
+    if (!this.#settings.vocabularyEnabled || this.scope.destroyed) return;
+    if (!this.view.translationRecords().has(id)) return;
+    const staged = this.#combinedWords.get(id);
+    if (staged !== undefined) {
+      this.#combinedWords.delete(id);
+      this.#vocabularyCombined.delete(id);
+      void this.#applyCombinedVocabulary(id, staged);
+      return;
+    }
+    if (this.#vocabularyCombined.has(id)) {
+      this.#vocabularyCombined.delete(id);
+      this.#vocabularyRequested.delete(id);
+      void this.#collectCommentVocabulary(id);
+      return;
+    }
+    if (this.#vocabularyTranslated.has(id)) return;
+    const binding = this.#vocabularyStates.get(id);
+    if (!binding || binding.words.length === 0) return;
+    if (binding.words.every((word) => word.translationTerm)) return;
+    this.#vocabularyTranslated.add(id);
+    this.#vocabularyRequested.delete(id);
+    void this.#collectCommentVocabulary(id);
+  }
+
+  /**
+   * Whether this comment's words are better asked for inside the translation request that is about to run
+   * for it. Only the AI provider can carry them, only a comment the translation pipeline covers is worth
+   * waiting for, and a comment that already has its Chinese is served by a vocabulary request that can
+   * quote it straight away.
+   */
+  #deferVocabularyToTranslation(id: CommentId): boolean {
+    if (!this.#settings.translationEnabled) return false;
+    if (this.#settings.translationProvider !== "ai") return false;
+    // Only a finished translation counts as "already translated": what streams in is a placeholder, and
+    // waiting for the same request to also answer the words costs nothing.
+    if (this.view.translationRecords().has(id)) return false;
+    return this.view.viewportCommentIds().includes(id);
+  }
+
+  /** The vocabulary half of the translation request, or nothing when no comment in the batch wants words. */
+  #translationVocabulary(): TranslationVocabularyRequest | undefined {
+    if (!this.#settings.vocabularyEnabled || this.#vocabularyCombined.size === 0) return undefined;
+    const sources = new Map<number, string>();
+    for (const id of this.#vocabularyCombined) {
+      const comment = this.tree.get(id);
+      if (comment) sources.set(id, this.preheater.get(id)?.translationText ?? comment.html);
+    }
+    if (sources.size === 0) return undefined;
+    return Object.freeze({
+      instruction: vocabularyCombinedInstruction(this.#settings.vocabularyLevels),
+      identity: vocabularyCombinedIdentity(this.#settings.vocabularyLevels),
+      sources,
+      // Staged, not published: the comment leaves the pending set the moment its words are in hand, so a
+      // settle step that runs before the cache write cannot mistake it for unanswered.
+      onWords: (id: number, raw: unknown) => {
+        this.#vocabularyCombined.delete(id as CommentId);
+        this.#combinedWords.set(id as CommentId, raw);
+      },
+    });
+  }
+
+  /**
+   * Publishes and binds the words a translation answer carried, and remembers whether they answered the
+   * comment. An answer that was unusable leaves both the cache and the pending state alone, so a request
+   * that asks a model for words alone can still take over.
+   */
+  async #applyCombinedVocabulary(id: CommentId, raw: unknown): Promise<void> {
+    if (this.scope.destroyed || !this.#settings.vocabularyEnabled) return;
+    const comment = this.tree.get(id);
+    if (!comment) return;
+    const source = this.preheater.get(id)?.translationText ?? comment.html;
+    const answered = await this.vocabulary.publish(source, this.view.translationText(id), raw);
+    if (this.scope.destroyed || !this.#settings.vocabularyEnabled) return;
+    if (!answered.stored) {
+      this.#vocabularyRequested.delete(id);
+      void this.#collectCommentVocabulary(id);
+      return;
+    }
+    const binding: ReaderVocabularyBinding = Object.freeze({ words: answered.words });
+    this.#vocabularyStates.set(id, binding);
+    this.#vocabularyRequested.add(id);
+    this.view.applyVocabulary(id, binding);
+    if (this.#isLocalBuild()) this.#reportVocabularyDiagnostics(id, answered.words, source);
+  }
+
+  /**
+   * Last resort for words whose translation never finished: publish them against whatever Chinese exists,
+   * which keeps the word list and lets the gloss matcher place the ink.
+   */
+  #settleStagedVocabulary(): void {
+    for (const [id, raw] of [...this.#combinedWords]) {
+      this.#combinedWords.delete(id);
+      void this.#applyCombinedVocabulary(id, raw);
+    }
   }
 
   #safeSnapshot(): ReturnType<CommentTree["snapshot"]> {

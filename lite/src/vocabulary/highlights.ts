@@ -1,3 +1,4 @@
+import { glossPattern } from "./gloss";
 import type { VocabularyWord } from "./model";
 
 export const VOCABULARY_INK_COLORS = Object.freeze([
@@ -21,6 +22,18 @@ const BRUSH_STROKES = Object.freeze([
   Object.freeze(["M5 12 Q40 9 65 11 T95 9", ".14", "3"] as const),
 ]);
 
+export type VocabularyInkLanguage = "en" | "zh";
+
+/** One place the reader currently shows the comment text, and which language lives there. */
+export interface VocabularyInkTarget {
+  readonly root: Element;
+  readonly language: VocabularyInkLanguage;
+}
+
+export function inkTarget(root: Element, language: VocabularyInkLanguage = "en"): VocabularyInkTarget {
+  return Object.freeze({ root, language });
+}
+
 function escapePattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
@@ -35,6 +48,13 @@ function escapePattern(value: string): string {
  * browser refuses the URL and the console reports a CSP violation for every mark. An inline `<svg>`
  * is DOM rather than a fetched image, so the same two strokes survive the host policy. `text-decoration`
  * is left to the stylesheet, and the SVG carries no text, so restoring a mark still yields the word.
+ *
+ * A mark that wraps onto a second line is a different problem: it has one box per line, and an
+ * absolutely positioned child can only be laid out against one of them, so the rest of the word would
+ * have no stroke — very visible in Chinese, where a quoted span wraps almost anywhere. Those marks are
+ * flagged for the stylesheet, which paints every fragment with a background instead; the reference's
+ * own `box-decoration-break: clone` is what makes a background reach each fragment. A mark that is not
+ * in the document yet has no fragments to count, so it keeps the brush and is measured when it lands.
  */
 export function applyVocabularyInk(mark: HTMLElement, index: number): void {
   const color = VOCABULARY_INK_COLORS[index % VOCABULARY_INK_COLORS.length] ?? VOCABULARY_INK_COLORS[0] ?? "#e995ab";
@@ -42,7 +62,16 @@ export function applyVocabularyInk(mark: HTMLElement, index: number): void {
   mark.style.removeProperty("text-decoration");
   mark.style.setProperty("box-decoration-break", "clone");
   mark.style.setProperty("-webkit-box-decoration-break", "clone");
-  const document = mark.ownerDocument;
+  if (mark.isConnected && mark.getClientRects().length > 1) {
+    mark.dataset.vocabularyWrap = "line";
+    return;
+  }
+  delete mark.dataset.vocabularyWrap;
+  mark.append(brushElement(mark.ownerDocument, color));
+}
+
+/** The reference's two strokes, as real elements: no URL, so no host policy can refuse it. */
+function brushElement(document: Document, color: string): SVGSVGElement {
   const brush = document.createElementNS(SVG_NAMESPACE, "svg");
   brush.setAttribute("class", VOCABULARY_BRUSH_CLASS);
   brush.setAttribute("viewBox", "0 0 100 16");
@@ -59,29 +88,65 @@ export function applyVocabularyInk(mark: HTMLElement, index: number): void {
     stroke.setAttribute("stroke-linecap", "round");
     brush.append(stroke);
   }
-  mark.append(brush);
+  return brush;
 }
 
-/** One root is the common case; the array form covers the several copies bilingual mode renders. */
-function inkRootList(value: readonly Element[] | Element): readonly Element[] {
-  return value instanceof Element ? [value] : value;
+interface TextSegment {
+  readonly node: Text;
+  /** Offsets of this node's text inside the whole subtree text. */
+  readonly start: number;
+  readonly end: number;
 }
 
-function textNodes(root: Element): Text[] {
-  const document = root.ownerDocument;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!(node instanceof Text) || !node.data.trim()) continue;
-    if (node.parentElement?.closest(SKIP_SELECTOR)) continue;
-    nodes.push(node);
-  }
-  return nodes;
+/**
+ * The whole visible text of a subtree with each text node's offsets inside it, so a span can be found
+ * across node boundaries. Two things split the text a match has to cross: inline markup the comment
+ * arrived with, and unwrapping an earlier mark, which leaves the word it restored in its own node —
+ * searching node by node would miss 「工程学」 whenever the text reads 「工程」 + 「学评论…」.
+ */
+function textSegments(root: Element): { readonly text: string; readonly segments: readonly TextSegment[] } {
+  const segments: TextSegment[] = [];
+  let text = "";
+  const visit = (parent: Element): void => {
+    for (const child of parent.childNodes) {
+      if (child instanceof Text) {
+        if (!child.data) continue;
+        segments.push({ node: child, start: text.length, end: text.length + child.data.length });
+        text += child.data;
+        continue;
+      }
+      if (child instanceof Element && !child.matches(SKIP_SELECTOR)) visit(child);
+    }
+  };
+  visit(root);
+  return { text, segments };
+}
+
+/** The word itself, as a whole word, in the language it was collected from. */
+function wordPattern(word: VocabularyWord): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapePattern(word.word)}(?![\\p{L}\\p{N}_])`, "giu");
+}
+
+/**
+ * The Chinese span a word covers. The model quotes that span straight from the translation it was shown,
+ * which is the only way to ink a rendering whose wording differs from the gloss — "the digital
+ * equivalent of Morty" is 「数字版莫蒂」, and neither 对应物 nor 等价物 appears there. A translation the
+ * reader has since replaced, or an answer collected before this field existed, falls back to matching
+ * the gloss itself.
+ */
+function chinesePattern(word: VocabularyWord, chinese: string): RegExp | null {
+  const quoted = word.translationTerm ?? "";
+  if (quoted && chinese.includes(quoted)) return new RegExp(escapePattern(quoted), "gu");
+  return glossPattern(word.meaning, chinese);
 }
 
 /**
  * Marks selected vocabulary inside comment bodies and always restores the exact original text,
  * so turning the feature off leaves the comment DOM byte-identical to the first render.
+ *
+ * A word is inked wherever the reader can see it: its English form in the original copy, and the
+ * Chinese span its gloss shares with the translation, using the same colour and the same hover card
+ * so the two are visibly the same word.
  */
 export class VocabularyHighlights {
   readonly #roots = new Map<Element, readonly HTMLElement[]>();
@@ -100,63 +165,88 @@ export class VocabularyHighlights {
   }
 
   /**
-   * Inks one word list into every root that currently shows the comment text. Bilingual mode renders
-   * one original section per paragraph, so a caller that passes only the first root would leave the
-   * rest of a multi-paragraph comment unhighlighted.
+   * Inks one word list into every target that currently shows the comment text. Bilingual mode renders
+   * one original section and one translation section per paragraph, so a caller that passes only the
+   * first root would leave the rest of a multi-paragraph comment unhighlighted.
    */
-  apply(roots: readonly Element[] | Element, words: readonly VocabularyWord[]): readonly HTMLElement[] {
+  apply(targets: readonly VocabularyInkTarget[], words: readonly VocabularyWord[]): readonly HTMLElement[] {
     this.clear();
     for (const word of words) this.#words.add(word.word);
     const created: HTMLElement[] = [];
-    for (const root of inkRootList(roots)) {
+    for (const target of targets) {
       const marks: HTMLElement[] = [];
-      // The colour follows the word, not the root, so a word keeps one colour in every paragraph.
-      for (const [index, word] of words.entries()) marks.push(...this.#mark(root, word, index));
+      // The colour follows the word, not the target, so a word keeps one colour everywhere it appears.
+      for (const [index, word] of words.entries()) {
+        marks.push(...this.#mark(target, word, index));
+      }
       if (marks.length === 0) continue;
-      this.#roots.set(root, Object.freeze(marks));
+      this.#roots.set(target.root, Object.freeze(marks));
       created.push(...marks);
     }
     return Object.freeze(created);
   }
 
   clear(): void {
-    for (const marks of this.#roots.values()) {
+    for (const [root, marks] of this.#roots) {
       for (const mark of marks) {
         if (!mark.isConnected) continue;
         // Mirrors the reference: restore the word, then drop the mark element itself.
         mark.replaceWith(mark.ownerDocument.createTextNode(mark.textContent ?? ""));
       }
+      // Unwrapping leaves the restored word in its own node, which serialises identically but splits the
+      // text a later span has to match across. Merging back keeps the copy as the reader first had it.
+      if (root.isConnected) root.normalize();
     }
     this.#roots.clear();
     this.#words.clear();
   }
 
-  #mark(root: Element, word: VocabularyWord, index: number): readonly HTMLElement[] {
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escapePattern(word.word)}(?![\\p{L}\\p{N}_])`, "giu");
+  #mark(target: VocabularyInkTarget, word: VocabularyWord, index: number): readonly HTMLElement[] {
+    const pattern = target.language === "zh" ? chinesePattern(word, target.root.textContent ?? "") : wordPattern(word);
+    if (!pattern) return Object.freeze([]);
+    const { text, segments } = textSegments(target.root);
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length === 0) return Object.freeze([]);
     const marks: HTMLElement[] = [];
-    for (const text of textNodes(root)) {
-      const matches = [...text.data.matchAll(pattern)];
-      if (matches.length === 0) continue;
-      const fragment = text.ownerDocument.createDocumentFragment();
-      let offset = 0;
+    // Each text node is rebuilt once, carrying a mark for every part of a match that falls inside it. A
+    // match crossing an inline element therefore becomes one mark per element, which paints the same.
+    for (const segment of segments) {
+      const pieces: ({ readonly keep: string } | { readonly mark: string })[] = [];
+      let cursor = 0;
       for (const match of matches) {
-        const start = match.index;
-        const end = start + match[0].length;
-        fragment.append(text.data.slice(offset, start));
-        const mark = text.ownerDocument.createElement("mark");
+        const from = Math.max(match.index, segment.start) - segment.start;
+        const to = Math.min(match.index + match[0].length, segment.end) - segment.start;
+        if (from >= to) continue;
+        if (from > cursor) pieces.push({ keep: segment.node.data.slice(cursor, from) });
+        pieces.push({ mark: segment.node.data.slice(from, to) });
+        cursor = to;
+      }
+      if (pieces.length === 0) continue;
+      if (cursor < segment.node.data.length) pieces.push({ keep: segment.node.data.slice(cursor) });
+      const fragment = segment.node.ownerDocument.createDocumentFragment();
+      const created: HTMLElement[] = [];
+      for (const piece of pieces) {
+        if ("keep" in piece) {
+          fragment.append(piece.keep);
+          continue;
+        }
+        const mark = segment.node.ownerDocument.createElement("mark");
         mark.dataset.vocabularyInk = "";
         mark.dataset.vocabularyWord = word.word;
-        mark.textContent = match[0];
+        mark.dataset.vocabularyLang = target.language;
+        mark.textContent = piece.mark;
         mark.setAttribute("aria-label", `${word.word} ${word.ipa} ${word.meaning}`);
-        applyVocabularyInk(mark, index);
         fragment.append(mark);
-        marks.push(mark);
-        offset = end;
+        created.push(mark);
       }
-      fragment.append(text.data.slice(offset));
-      text.replaceWith(fragment);
+      segment.node.replaceWith(fragment);
+      // Inked after insertion, because whether a mark wraps is only knowable once it is laid out.
+      for (const mark of created) {
+        applyVocabularyInk(mark, index);
+        marks.push(mark);
+      }
     }
-    for (const mark of marks) this.onMark?.(mark, word, root);
+    for (const mark of marks) this.onMark?.(mark, word, target.root);
     return marks;
   }
 }

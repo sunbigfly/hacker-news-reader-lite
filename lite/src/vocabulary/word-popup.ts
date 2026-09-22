@@ -7,6 +7,82 @@ export interface WordPopupOptions {
   readonly word: VocabularyWord;
   readonly sourceUrl: string;
   readonly onSaved?: (word: VocabularyWord) => void;
+  /** Pointer entered the card: the caller cancels its pending hover close. */
+  readonly onPointerEnter?: () => void;
+  /** Pointer left the card: the caller may close once the pointer is on neither element. */
+  readonly onPointerLeave?: () => void;
+}
+
+/** What a hovered card tells its anchor about the pointer, so the pair can stay open across the gap. */
+export interface WordCardHooks {
+  readonly onPointerEnter: () => void;
+  readonly onPointerLeave: () => void;
+}
+
+/** How long the pointer must rest on a word before its card is worth showing. */
+export const WORD_CARD_OPEN_DELAY_MS = 500;
+/** Grace period for the pointer to travel from a word into its card without the card collapsing. */
+export const WORD_CARD_CLOSE_DELAY_MS = 180;
+
+/**
+ * The hover behaviour of one word, shared by the marked words inside a comment and the rows of the
+ * vocabulary strip so a card feels the same wherever a word is hovered.
+ *
+ * Reading sweeps the pointer across many words, so opening on contact buries the text under cards nobody
+ * asked for: the card waits for a deliberate dwell. Leaving only books a close, because the pointer is
+ * usually on its way into the card, and keyboard focus opens at once — waiting there serves nobody.
+ */
+export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) => () => void): void {
+  const view = anchor.ownerDocument.defaultView;
+  let dismiss: (() => void) | undefined;
+  let openTimer: number | null = null;
+  let closeTimer: number | null = null;
+  const clearTimer = (timer: number | null): null => {
+    if (timer !== null && view) view.clearTimeout(timer);
+    return null;
+  };
+  const cancelOpen = (): void => {
+    openTimer = clearTimer(openTimer);
+  };
+  const cancelClose = (): void => {
+    closeTimer = clearTimer(closeTimer);
+  };
+  const close = (): void => {
+    cancelOpen();
+    cancelClose();
+    dismiss?.();
+    dismiss = undefined;
+  };
+  const scheduleClose = (): void => {
+    cancelClose();
+    if (!view) {
+      close();
+      return;
+    }
+    closeTimer = view.setTimeout(close, WORD_CARD_CLOSE_DELAY_MS);
+  };
+  const show = (): void => {
+    cancelOpen();
+    cancelClose();
+    if (dismiss) return;
+    dismiss = open({ onPointerEnter: cancelClose, onPointerLeave: scheduleClose });
+  };
+  const scheduleOpen = (): void => {
+    cancelOpen();
+    if (!view) {
+      show();
+      return;
+    }
+    openTimer = view.setTimeout(show, WORD_CARD_OPEN_DELAY_MS);
+  };
+  const leave = (): void => {
+    cancelOpen();
+    scheduleClose();
+  };
+  anchor.addEventListener("pointerenter", scheduleOpen);
+  anchor.addEventListener("focus", show);
+  anchor.addEventListener("pointerleave", leave);
+  anchor.addEventListener("blur", close);
 }
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -125,7 +201,7 @@ export function showWordPopup(options: WordPopupOptions): () => void {
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = `
-    section{box-sizing:border-box;max-height:calc(100vh - 40px);overflow-y:auto;padding:12px;border:1px solid var(--hnr-line);border-radius:10px;background:var(--hnr-paper-raised);color:var(--hnr-ink);font:13px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px #0002;overflow-wrap:anywhere}
+    section{box-sizing:border-box;max-height:var(--hnr-popup-max-height,calc(100vh - 40px));overflow-y:auto;padding:12px;border:1px solid var(--hnr-line);border-radius:10px;background:var(--hnr-paper-raised);color:var(--hnr-ink);font:13px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px #0002;overflow-wrap:anywhere}
     strong{font-size:16px;font-family:var(--hnr-title-font-family,ui-serif,Georgia,serif)}
     p{margin:6px 0;white-space:pre-wrap}
     .hnr-popup-example{font-family:var(--hnr-content-font-family,ui-serif,Charter,Georgia,serif)}
@@ -172,7 +248,11 @@ export function showWordPopup(options: WordPopupOptions): () => void {
   shadow.append(style, section);
   container.append(host);
 
-  const onScroll = (): void => close();
+  const onScroll = (event: Event): void => {
+    // A capped card scrolls inside itself; that is the reader reading the card, not the page moving.
+    if (event.composedPath().includes(host)) return;
+    close();
+  };
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === "Escape") close();
   };
@@ -188,14 +268,22 @@ export function showWordPopup(options: WordPopupOptions): () => void {
     window.removeEventListener("resize", onScroll);
     document.removeEventListener("keydown", onKey, true);
     document.removeEventListener("pointerdown", onOutsidePointer, true);
+    host.removeEventListener("pointerenter", onHostEnter);
+    host.removeEventListener("pointerleave", onHostLeave);
     host.remove();
   };
+  const onHostEnter = (): void => options.onPointerEnter?.();
+  const onHostLeave = (): void => options.onPointerLeave?.();
   document.addEventListener("pointerdown", onOutsidePointer, true);
   window.addEventListener("scroll", onScroll, true);
   window.addEventListener("resize", onScroll);
   document.addEventListener("keydown", onKey, true);
-  positionPopup(anchor, host);
-  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => positionPopup(anchor, host)) : undefined;
+  host.addEventListener("pointerenter", onHostEnter);
+  host.addEventListener("pointerleave", onHostLeave);
+  // The card's own size is read once: repositioning must not depend on the cap it applies itself.
+  const naturalSize = { width: host.offsetWidth || DEFAULT_CARD_WIDTH, height: host.offsetHeight || DEFAULT_CARD_HEIGHT };
+  positionPopup(anchor, host, naturalSize);
+  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => positionPopup(anchor, host, naturalSize)) : undefined;
   observer?.observe(host);
   return () => {
     observer?.disconnect();
@@ -234,10 +322,14 @@ function fixedContainingBlock(element: Element): HTMLElement | null {
 }
 
 /**
- * Places the card under its word, flipping it above when the word sits near the bottom, and clamps
- * it inside the containing block so it never renders past the reading column.
+ * Places the card under its word, flipping it above when the word sits near the bottom, and clamps it
+ * inside the containing block so it never renders past the reading column.
+ *
+ * `naturalSize` is measured once, before any height cap is applied. Recomputing the side from the capped
+ * height instead would let the card shrink below the threshold that put it there and oscillate between
+ * the two sides on every resize observation.
  */
-function positionPopup(anchor: HTMLElement, host: HTMLElement): void {
+function positionPopup(anchor: HTMLElement, host: HTMLElement, naturalSize: { readonly width: number; readonly height: number }): void {
   const view = host.ownerDocument.defaultView;
   if (!view) return;
   const block = fixedContainingBlock(host);
@@ -250,17 +342,47 @@ function positionPopup(anchor: HTMLElement, host: HTMLElement): void {
   const left = placeAxis({
     edge: anchorRect.left - blockRect.left,
     span: blockRect.width,
-    size: host.offsetWidth || DEFAULT_CARD_WIDTH,
+    size: naturalSize.width,
     gap: 0,
   });
-  const top = placeAxis({
-    edge: anchorRect.bottom - blockRect.top,
+  const vertical = placeVertical({
+    anchorTop: anchorRect.top - blockRect.top,
+    anchorBottom: anchorRect.bottom - blockRect.top,
     span: Math.min(blockRect.height, view.innerHeight),
-    size: host.offsetHeight || DEFAULT_CARD_HEIGHT,
+    size: naturalSize.height,
     gap: CARD_GAP,
   });
   host.style.left = `${left}px`;
-  host.style.top = `${top}px`;
+  host.style.top = `${vertical.top}px`;
+  // A card taller than the free space is capped and scrolls, which keeps it clear of its own word.
+  host.style.setProperty("--hnr-popup-max-height", `${Math.round(vertical.available)}px`);
+}
+
+interface VerticalPlacement {
+  readonly anchorTop: number;
+  readonly anchorBottom: number;
+  readonly span: number;
+  readonly size: number;
+  readonly gap: number;
+}
+
+/**
+ * Keeps the card clear of the word it describes. Below is preferred, above is next, and when neither
+ * side has room the roomier one is used with the card capped to that space.
+ *
+ * The card must never cover its own word: the pointer would enter the card, the word would lose hover,
+ * and the pair would flicker open and shut as long as the pointer stayed still.
+ */
+function placeVertical({ anchorTop, anchorBottom, span, size, gap }: VerticalPlacement): { readonly top: number; readonly available: number } {
+  const margin = 8;
+  const below = anchorBottom + gap;
+  const spaceBelow = span - below - margin;
+  const spaceAbove = anchorTop - gap - margin;
+  if (size <= spaceBelow) return { top: Math.round(below), available: spaceBelow };
+  if (size <= spaceAbove) return { top: Math.round(anchorTop - gap - size), available: spaceAbove };
+  return spaceBelow >= spaceAbove
+    ? { top: Math.round(below), available: spaceBelow }
+    : { top: margin, available: spaceAbove };
 }
 
 interface AxisPlacement {

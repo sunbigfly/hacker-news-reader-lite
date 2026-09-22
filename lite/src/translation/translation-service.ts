@@ -30,6 +30,33 @@ export interface TranslationOutput {
   readonly complete: boolean;
 }
 export interface CachedTranslation { readonly translation: string; readonly sections?: readonly string[]; readonly provider: TranslationOutput["provider"] }
+
+/**
+ * Asks the same AI request that translates a comment to also return that comment's vocabulary.
+ *
+ * The words belong to the vocabulary owner, which is where their prompt, validation and cache live; this
+ * service only carries the instruction through and hands back what the model returned, keeping its own
+ * contract — sections keyed `section_<n>` — untouched. Translation cache identity is deliberately left
+ * alone: how a section translates does not depend on this extra field.
+ */
+export interface TranslationVocabularyRequest {
+  /** Appended to the translation instruction; owned by the vocabulary prompt. */
+  readonly instruction: string;
+  /** Distinguishes the two prompt variants in task keys, so they never share one queued request. */
+  readonly identity: string;
+  /** Comment id to the English source its words come from; ids absent from the batch are skipped. */
+  readonly sources: ReadonlyMap<number, string>;
+  /** Receives the model's raw word list for one comment; validating it belongs to the vocabulary owner. */
+  readonly onWords: (id: number, raw: unknown) => void;
+}
+
+interface BatchVocabulary {
+  readonly instruction: string;
+  /** The comment each section belongs to, aligned with the batch's sources. */
+  readonly comments: readonly number[];
+  readonly wanted: readonly number[];
+  readonly onWords: (id: number, raw: unknown) => void;
+}
 interface PreparedSection {
   readonly index: number;
   readonly requestSource: string;
@@ -78,6 +105,11 @@ const AI_EXCERPT_MIN_CHARS = 80;
 const AI_EXCERPT_MIN_ADDITIONAL_CHARS = 32;
 const FORMATTED_PROTECTED_TOKEN_PATTERN = /⟦([\d\p{Cf}\p{White_Space}]+)⟧/gu;
 const PROTECTED_TOKEN_IGNORABLE_PATTERN = /[\p{Cf}\p{White_Space}]/gu;
+/**
+ * Sections are read as they stream, and the streaming decoder stops at the first value that is not a
+ * string, so the words must come after every section in the answer.
+ */
+const VOCABULARY_ANSWER_ORDER = "先输出全部 section_* 键，最后再输出 words 键。";
 
 function normalizeProtectedTokenFormatting(value: string): string {
   return value.replace(FORMATTED_PROTECTED_TOKEN_PATTERN, (token, body: string) => {
@@ -126,11 +158,31 @@ function validatedResults(values: readonly string[], sources: readonly string[],
   return Object.freeze(normalized.map((value) => value.trim()));
 }
 
-function parseJsonRecord(raw: string): Readonly<Record<string, string>> {
+/**
+ * A combined answer carries section translations as strings and the words as a nested object, so the
+ * section values and the raw payload are read apart: validation of the words belongs to the vocabulary
+ * owner, which is also the only place that knows their contract.
+ */
+function parseAiRecord(raw: string): { readonly sections: Readonly<Record<string, string>>; readonly payload: Readonly<Record<string, unknown>> } {
   const source = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const payload = JSON.parse(source) as unknown;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("AI 译文必须是 JSON 对象");
-  return Object.freeze(Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, typeof value === "string" ? value : ""])));
+  const entries = Object.entries(payload);
+  return {
+    sections: Object.freeze(Object.fromEntries(entries.map(([key, value]) => [key, typeof value === "string" ? value : ""]))),
+    payload: Object.freeze(Object.fromEntries(entries)),
+  };
+}
+
+/** Hands each wanted comment its own slice of the answer; anything else stays with the translator. */
+function deliverVocabulary(payload: Readonly<Record<string, unknown>>, vocabulary: BatchVocabulary): void {
+  const words = payload["words"];
+  if (!words || typeof words !== "object" || Array.isArray(words)) return;
+  const byComment = words as Record<string, unknown>;
+  for (const id of vocabulary.wanted) {
+    const raw = byComment[String(id)];
+    if (raw !== undefined) vocabulary.onWords(id, raw);
+  }
 }
 
 function streamedJsonString(source: string, start: number, allowPartial = false): { readonly value: string; readonly next: number; readonly complete: boolean } | null {
@@ -301,6 +353,7 @@ export class TranslationService {
     priority: TranslationTaskPriority = "visible",
     onProgress?: (complete: number, total: number) => void,
     onOutput?: (output: TranslationOutput) => void,
+    vocabulary?: TranslationVocabularyRequest,
   ): Promise<readonly TranslationOutput[]> {
     const prepared = (await Promise.all(inputs.map(async (input) => this.#prepare(input, settings)))).filter((item): item is PreparedTranslation => item !== null);
     const outputs: TranslationOutput[] = [];
@@ -387,6 +440,17 @@ export class TranslationService {
         .map(({ item, section }) => `${item.input.id}:${item.cacheKey}:${section.index}`)
         .join("|");
       const inputIds = [...new Set(entries.map(({ item }) => item.input.id))];
+      // Words ride along only for the comments in this batch that asked for them; the model is told which
+      // comment each section belongs to, so one request can translate several comments and still answer
+      // per comment.
+      const batchVocabulary: BatchVocabulary | undefined = vocabulary && settings.translationProvider === "ai"
+        ? {
+            instruction: vocabulary.instruction,
+            comments: entries.map(({ item }) => item.input.id),
+            wanted: inputIds.filter((id) => vocabulary.sources.has(id)),
+            onWords: vocabulary.onWords,
+          }
+        : undefined;
       const readBatchPriority = (): TranslationTaskPriority => inputIds.reduce<TranslationTaskPriority>((current, id) => {
         const requested = this.#requestedPriorities.get(id);
         if (requested === "interactive" || current === "interactive") return "interactive";
@@ -419,7 +483,9 @@ export class TranslationService {
         }
       };
       const request = async (attempt: "initial" | "retry"): Promise<TranslationBatchResult> => {
-        const key = `translation:batch:${hashText(sectionIdentity)}:${attempt}`;
+        // The vocabulary instruction changes the prompt, so the two variants must not share a queued task.
+        const identity = batchVocabulary ? `${sectionIdentity}|${vocabulary?.identity ?? ""}` : sectionIdentity;
+        const key = `translation:batch:${hashText(identity)}:${attempt}`;
         for (const id of inputIds) {
           const keys = this.#taskKeysByInputId.get(id) ?? new Map<string, number>();
           keys.set(key, (keys.get(key) ?? 0) + 1);
@@ -430,8 +496,9 @@ export class TranslationService {
             sources,
             settings,
             taskSignal,
-            `translation:batch:${hashText(sectionIdentity)}:${attempt}`,
+            `translation:batch:${hashText(identity)}:${attempt}`,
             publishStreamValue,
+            batchVocabulary,
           ));
         } finally {
           for (const id of inputIds) {
@@ -554,16 +621,32 @@ export class TranslationService {
     signal: AbortSignal,
     requestIdentity: string,
     onPartial?: (values: Readonly<Record<string, StreamedJsonValue>>) => void,
+    vocabulary?: BatchVocabulary,
   ): Promise<TranslationBatchResult> {
     if (settings.translationProvider === "ai") {
       const entries = sources.map(aiTranslationSource);
-      const keyedEntries = entries.map((entry, index) => ({ ...entry, id: `section_${index}` }));
+      const keyedEntries = entries.map((entry, index) => (vocabulary
+        // A combined request has to say which comment each section belongs to, so the words it returns
+        // can be routed per comment.
+        ? { ...entry, id: `section_${index}`, comment: vocabulary.comments[index] }
+        : { ...entry, id: `section_${index}` }));
+      // The payload shape only changes when words are wanted: an existing translation request keeps the
+      // exact array it has always sent.
+      const payload = vocabulary
+        ? { sections: keyedEntries, wordsFor: vocabulary.wanted }
+        : keyedEntries;
+      const instruction = vocabulary
+        // Sections must come first in the answer: the streaming decoder stops at the first non-string
+        // value, and reading the sections progressively is why it exists.
+        ? `${VOCABULARY_ANSWER_ORDER}${vocabulary.instruction}`
+        : "";
       const raw = await this.ai.complete(settings.ai, requestIdentity, [
-        { role: "system", content: `你是严格的翻译器。输入是带 id 的 JSON 对象数组；只翻译每项 text，before/after 仅用于理解相邻上下文，不得写入结果。每项 text 都是独立、完整的边界；不得把其他项的续句或相似段落补入译文。输出一个 JSON 对象，以每项 id 为键、对应简体中文译文为值；原样保留 text 中全部 ⟦数字⟧ 占位符，不得遗漏、合并或增加 id。只输出 JSON 对象。${settings.ai.prompt}` },
-        { role: "user", content: JSON.stringify(keyedEntries) },
+        { role: "system", content: `你是严格的翻译器。输入是带 id 的 JSON 对象数组；只翻译每项 text，before/after 仅用于理解相邻上下文，不得写入结果。每项 text 都是独立、完整的边界；不得把其他项的续句或相似段落补入译文。输出一个 JSON 对象，以每项 id 为键、对应简体中文译文为值；原样保留 text 中全部 ⟦数字⟧ 占位符，不得遗漏、合并或增加 id。只输出 JSON 对象。${settings.ai.prompt}${instruction}` },
+        { role: "user", content: JSON.stringify(payload) },
       ], signal, (content) => onPartial?.(streamedJsonRecord(content)));
-      const keyedValues = parseJsonRecord(raw);
-      const values = keyedEntries.map((entry) => keyedValues[entry.id] ?? "");
+      const record = parseAiRecord(raw);
+      if (vocabulary) deliverVocabulary(record.payload, vocabulary);
+      const values = keyedEntries.map((entry) => record.sections[entry.id] ?? "");
       return { values: validatedResults(values, entries.map((entry) => entry.text), "AI"), provider: "ai" };
     }
     const providers: readonly ("google" | "microsoft")[] = settings.translationProvider === "google"

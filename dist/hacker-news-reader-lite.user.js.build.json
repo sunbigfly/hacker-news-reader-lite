@@ -1,8 +1,8 @@
 {
   "mode": "production",
   "artifact": "dist/hacker-news-reader-lite.user.js",
-  "bytes": 1450854,
-  "sha256": "64adf05131ffb77d4a9a47b4e6caed9a21a1407d96aedb97595ebc60f70e081c",
+  "bytes": 1458819,
+  "sha256": "9d74f75f0d245d59a3707d8dc16689f52ecb365146a91a45ed99cabc35039871",
   "styles": [
     "00-base.css",
     "05-host.css",

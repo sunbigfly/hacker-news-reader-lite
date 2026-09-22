@@ -64,7 +64,51 @@ describe("vocabulary service", () => {
     expect(profile).toBe(DEFAULT_SETTINGS.ai);
     expect(messages?.[0]?.role).toBe("system");
     expect(messages?.[0]?.content).toContain("六级");
-    expect(JSON.parse(String(messages?.[1]?.content))).toEqual({ text: SOURCE });
+    expect(JSON.parse(String(messages?.[1]?.content))).toEqual({ text: SOURCE, translation: "" });
+  });
+
+  it("sends the translation so the model can quote each word's Chinese span", async () => {
+    const { service, calls } = harness(JSON.stringify([{
+      word: "undermine",
+      ipa: "/ˌʌndərˈmaɪn/",
+      meaning: "削弱",
+      example: "Late changes can undermine a careful plan.",
+      exampleMeaning: "后期的改动可能削弱周密的计划。",
+      level: "CET6",
+      translationTerm: "削弱",
+    }]));
+    const translation = " 后期的改动会削弱周密的计划。 ";
+    const words = await service.collect(SOURCE, { translation });
+    expect(words[0]?.translationTerm).toBe("削弱");
+    // The payload carries the collapsed Chinese, and the quoted span is validated against exactly that.
+    expect(JSON.parse(String(calls[0]?.messages[1]?.content))).toEqual({
+      text: SOURCE,
+      translation: "后期的改动会削弱周密的计划。",
+    });
+  });
+
+  it("drops a quoted span that is not in the translation it was answered against", async () => {
+    const { service } = harness(JSON.stringify([{
+      word: "undermine",
+      ipa: "/ˌʌndərˈmaɪn/",
+      meaning: "削弱",
+      example: "Late changes can undermine a careful plan.",
+      exampleMeaning: "后期的改动可能削弱周密的计划。",
+      level: "CET6",
+      translationTerm: "冲击",
+    }]));
+    const words = await service.collect(SOURCE, { translation: "后期的改动会削弱周密的计划。" });
+    expect(words[0]?.translationTerm).toBeUndefined();
+  });
+
+  it("keys the cache by translation, so a new translation asks the model again", async () => {
+    const { service, callCount } = harness();
+    await service.collect(SOURCE);
+    await service.collect(SOURCE, { translation: "后期的改动会削弱计划。" });
+    expect(callCount()).toBe(2);
+    // The same translation is reused rather than requested again.
+    await service.collect(SOURCE, { translation: "后期的改动会削弱计划。" });
+    expect(callCount()).toBe(2);
   });
 
   it("serves a repeated comment from cache without another AI request", async () => {
@@ -105,6 +149,55 @@ describe("vocabulary service", () => {
     setSettings(settings({ vocabularyLevels: "cet6+" }));
     await service.collect(SOURCE);
     expect(callCount()).toBe(2);
+  });
+
+  it("stores words that came back with the translation, so no vocabulary request is needed", async () => {
+    const { service, callCount } = harness();
+    const translation = "后期的改动会削弱周密的计划。";
+    const published = (await service.publish(SOURCE, translation, [{
+      word: "undermine",
+      ipa: "/ˌʌndərˈmaɪn/",
+      meaning: "削弱",
+      example: "Late changes can undermine a careful plan.",
+      exampleMeaning: "后期的改动可能削弱周密的计划。",
+      level: "CET6",
+      translationTerm: "削弱",
+    }])).words;
+    expect(published.map((word) => word.word)).toEqual(["undermine"]);
+    // The combined answer already answered this exact question: asking again must not reach the model.
+    const collected = await service.collect(SOURCE, { translation });
+    expect(collected.map((word) => word.word)).toEqual(["undermine"]);
+    expect(collected[0]?.translationTerm).toBe("削弱");
+    expect(callCount()).toBe(0);
+  });
+
+  it("drops a combined span that is not in the translation, and reuses the rest of that answer", async () => {
+    const { service, callCount } = harness();
+    const translation = "后期的改动会削弱周密的计划。";
+    const published = (await service.publish(SOURCE, translation, [{
+      word: "undermine",
+      ipa: "/ˌʌndərˈmaɪn/",
+      meaning: "削弱",
+      example: "Late changes can undermine a careful plan.",
+      exampleMeaning: "后期的改动可能削弱周密的计划。",
+      level: "CET6",
+      translationTerm: "冲击",
+    }])).words;
+    // The word is real, only its claimed span was not; the reader falls back to matching the gloss.
+    expect(published[0]?.translationTerm).toBeUndefined();
+    const collected = await service.collect(SOURCE, { translation });
+    expect(collected.map((word) => word.word)).toEqual(["undermine"]);
+    expect(callCount()).toBe(0);
+  });
+
+  it("leaves the cache alone when the combined answer was not even a list", async () => {
+    const { service, callCount } = harness();
+    const published = await service.publish(SOURCE, "后期的改动会削弱周密的计划。", { words: "not an array" });
+    expect(published.stored).toBe(false);
+    expect(published.words).toEqual([]);
+    // An unusable answer must not pass for "this comment has no words": the standalone request may ask.
+    await service.collect(SOURCE, { translation: "后期的改动会削弱周密的计划。" });
+    expect(callCount()).toBe(1);
   });
 
   it("surfaces the AI configuration error instead of a word list", async () => {

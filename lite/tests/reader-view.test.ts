@@ -1223,6 +1223,64 @@ describe("ReaderView", () => {
     scope.destroy();
   });
 
+  it("keeps the word card open while the pointer travels from the word into the card", async () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    let target: CommentId = 0 as CommentId;
+    let words: readonly VocabularyWord[] = Object.freeze([]);
+    view.setVocabularyActions({
+      onRequest: (id) => (id === target && words.length > 0 ? { words } : undefined),
+      onOpenWordbook: vi.fn(),
+    });
+    view.applySettings({ ...DEFAULT_SETTINGS, vocabularyEnabled: true });
+    view.update(tree, new CommentProjection(tree), true);
+
+    const mounted = [...view.surfaceRoot.querySelectorAll<HTMLElement>(".hnr-comment[data-comment-id]")];
+    const candidate = mounted.flatMap((comment) => {
+      const keyword = (comment.querySelector<HTMLElement>(".hnr-original-text")?.textContent ?? "").match(/[a-z]{7,}/i)?.[0];
+      return keyword ? [{ comment, keyword }] : [];
+    })[0];
+    if (!candidate) throw new Error("Fixture did not mount a comment with a long English word");
+    target = Number.parseInt(candidate.comment.dataset.commentId ?? "", 10) as CommentId;
+    words = Object.freeze([{
+      word: candidate.keyword.toLowerCase(),
+      ipa: `/${candidate.keyword.toLowerCase()}/`,
+      meaning: `${candidate.keyword} 的释义`,
+      example: `An example with ${candidate.keyword} inside.`,
+      exampleMeaning: `一个包含 ${candidate.keyword} 的例句。`,
+      level: "CET6",
+    }]);
+    view.refreshVocabulary();
+
+    const mark = view.surfaceRoot.querySelector<HTMLElement>(`mark[data-vocabulary-ink]`);
+    if (!mark) throw new Error("no marked word to hover");
+    const popup = (): Element | null => view.surfaceRoot.querySelector(".hnr-word-popup");
+
+    // Reading sweeps the pointer across many words, so the card waits for a deliberate dwell.
+    mark.dispatchEvent(new PointerEvent("pointerenter"));
+    expect(popup()).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(popup()).not.toBeNull();
+
+    // Leaving the word only starts a grace period: the pointer is on its way into the card.
+    mark.dispatchEvent(new PointerEvent("pointerleave"));
+    expect(popup()).not.toBeNull();
+    popup()?.dispatchEvent(new PointerEvent("pointerenter"));
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(popup()).not.toBeNull();
+
+    // Once the pointer leaves both, the card goes.
+    popup()?.dispatchEvent(new PointerEvent("pointerleave"));
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    expect(popup()).toBeNull();
+    scope.destroy();
+  });
+
   it("inks the copy of the comment the reader actually shows, not the hidden original", () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document);
@@ -1253,14 +1311,14 @@ describe("ReaderView", () => {
     words = Object.freeze([{
       word: keyword.toLowerCase(),
       ipa: `/${keyword.toLowerCase()}/`,
-      meaning: `${keyword} 的释义`,
+      meaning: "难以接近的",
       example: `An example with ${keyword} inside.`,
       exampleMeaning: `一个包含 ${keyword} 的例句。`,
       level: "CET6",
     }, {
       word: later,
       ipa: `/${later}/`,
-      meaning: `${later} 的释义`,
+      meaning: "市场",
       example: `An example with ${later} inside.`,
       exampleMeaning: `一个包含 ${later} 的例句。`,
       level: "CET6",
@@ -1270,7 +1328,7 @@ describe("ReaderView", () => {
     const row = (): HTMLElement | null => view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${target}"]`);
     const bodyChild = (name: string): HTMLElement | undefined => [...(row()?.querySelector<HTMLElement>(".hnr-comment-body")?.children ?? [])]
       .find((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains(name));
-    const sections = (): HTMLElement[] => [...(bodyChild("hnr-bilingual-text")?.querySelectorAll<HTMLElement>(".hnr-bilingual-original-section") ?? [])];
+    const sections = (selector: string): HTMLElement[] => [...(bodyChild("hnr-bilingual-text")?.querySelectorAll<HTMLElement>(selector) ?? [])];
     const marks = (root: HTMLElement | undefined): number => root?.querySelectorAll("mark[data-vocabulary-ink]").length ?? 0;
 
     expect(marks(bodyChild("hnr-original-text"))).toBeGreaterThan(0);
@@ -1281,22 +1339,38 @@ describe("ReaderView", () => {
     view.setTranslation(
       target,
       "翻译文本",
-      "<p>翻译文本</p>",
-      `<div class="hnr-bilingual-original-section">The ${keyword} plan stands.</div><div class="hnr-bilingual-translation-section">翻译一</div>`
-        + `<div class="hnr-bilingual-original-section">A second paragraph mentions ${later} too.</div><div class="hnr-bilingual-translation-section">翻译二</div>`,
+      "<p>这个方案难以接近。</p>",
+      `<div class="hnr-bilingual-original-section">The ${keyword} plan stands.</div><div class="hnr-bilingual-translation-section">这个方案难以接近。</div>`
+        + `<div class="hnr-bilingual-original-section">A second paragraph mentions ${later} too.</div><div class="hnr-bilingual-translation-section">第二段也提到了市场。</div>`,
     );
     view.setTranslationMode("bilingual");
 
     expect(bodyChild("hnr-original-text")?.hidden).toBe(true);
-    expect(sections()).toHaveLength(2);
-    expect(sections().map(marks)).toEqual([1, 1]);
+    expect(sections(".hnr-bilingual-original-section").map(marks)).toEqual([1, 1]);
+    // The Chinese copy carries the gloss of each word, not a translation of the English word itself.
+    const chinese = sections(".hnr-bilingual-translation-section").map(marks);
+    expect(chinese).toEqual([1, 1]);
+    expect(sections(".hnr-bilingual-translation-section").map((section) => section.querySelector("mark")?.textContent))
+      .toEqual(["难以接近", "市场"]);
+    // Same word, same ink in both languages.
+    const [firstEnglish] = sections(".hnr-bilingual-original-section")[0]?.querySelectorAll<HTMLElement>("mark") ?? [];
+    const [firstChinese] = sections(".hnr-bilingual-translation-section")[0]?.querySelectorAll<HTMLElement>("mark") ?? [];
+    expect(firstChinese?.style.getPropertyValue("--hnr-vocabulary-ink"))
+      .toBe(firstEnglish?.style.getPropertyValue("--hnr-vocabulary-ink"));
     expect(marks(bodyChild("hnr-original-text"))).toBe(0);
     expect(row()?.querySelector<HTMLElement>(".hnr-vocabulary")?.hidden).toBe(false);
+
+    // Translated-only mode hides both bilingual sections, so the gloss has to follow the Chinese there.
+    view.setTranslationMode("translated");
+    expect(marks(bodyChild("hnr-translated-text"))).toBe(1);
+    expect(bodyChild("hnr-translated-text")?.querySelector("mark")?.textContent).toBe("难以接近");
+    expect(sections(".hnr-bilingual-translation-section").map(marks)).toEqual([0, 0]);
 
     // Switching back must not leave the ink stranded in the copy that just became hidden.
     view.setTranslationMode("original");
     expect(marks(bodyChild("hnr-original-text"))).toBeGreaterThan(0);
-    expect(sections().map(marks)).toEqual([0, 0]);
+    expect(sections(".hnr-bilingual-original-section").map(marks)).toEqual([0, 0]);
+    expect(sections(".hnr-bilingual-translation-section").map(marks)).toEqual([0, 0]);
     scope.destroy();
   });
 
