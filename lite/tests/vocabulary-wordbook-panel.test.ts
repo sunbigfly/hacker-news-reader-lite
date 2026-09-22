@@ -13,7 +13,7 @@ export function fakeLookup(options: {
   readonly examples?: readonly BilingualExample[];
   readonly failDictionary?: boolean;
 } = {}): WordLookupService {
-  const senses = options.senses ?? [{ partOfSpeech: "noun", definitions: [{ definition: "a spelling rule", example: "" }] }];
+  const senses = options.senses ?? [{ partOfSpeech: "noun", definitions: [{ definition: "a spelling rule", example: "A wordb spelling rule." }] }];
   const examples = options.examples ?? [{
     id: 42,
     english: "An example with wordb inside.",
@@ -97,6 +97,11 @@ describe("wordbook panel", () => {
     expect(rows.map((row) => row.dataset.wordbookRow)).toEqual(["wordc", "wordb", "worda"]);
     expect(rows.map((row) => row.querySelector(".hnr-summary-history-number")?.textContent)).toEqual(["01", "02", "03"]);
     expect(rows[0]?.querySelector(".hnr-wordbook-meta")?.textContent).toContain("六级");
+    expect(rows[0]?.querySelector(".hnr-wordbook-card-ipa")?.textContent).toBe("/wordc/");
+    expect(rows[0]?.querySelector(".hnr-wordbook-card-meaning")?.textContent).toBe("wordc 的释义");
+    expect(rows[0]?.querySelector(".hnr-wordbook-card-example")?.textContent).toContain("wordc");
+    expect(rows[0]?.querySelector("time")?.getAttribute("datetime")).not.toBe("");
+    expect(rows[0]?.querySelectorAll(".hnr-wordbook-card-actions button")).toHaveLength(2);
   });
 
   it("sorts alphabetically on demand", () => {
@@ -156,18 +161,20 @@ describe("wordbook panel", () => {
     expect(onRemove).toHaveBeenCalledWith("wordb");
   });
 
-  it("offers one tab per word source, with the collected example first", () => {
+  it("leads with dictionary information and exposes examples as adjacent tabs", () => {
     const { root } = mount();
     root.querySelector<HTMLButtonElement>('[data-wordbook-word="wordb"]')?.click();
     const tabs = [...root.querySelectorAll<HTMLButtonElement>(".hnr-wordbook-tab")];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["双语学习", "记忆例句", "英文详解"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["词典释义", "双语例句", "收藏例句"]);
     expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
     const panels = [...root.querySelectorAll<HTMLElement>(".hnr-wordbook-source")];
     expect(panels).toHaveLength(2);
     expect(panels.map((panel) => panel.hidden)).toEqual([false, true]);
 
-    tabs[2]?.click();
-    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "false", "true"]);
+    tabs[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([-1, 0, -1]);
     expect(panels.map((panel) => panel.hidden)).toEqual([true, false]);
   });
 
@@ -178,14 +185,14 @@ describe("wordbook panel", () => {
     // The panel classes carry their own `display`, so the stylesheet must close them by attribute.
     const panels = [...(main?.querySelectorAll<HTMLElement>(":scope > :not(.hnr-wordbook-tabs)") ?? [])];
     expect(panels.map((panel) => panel.className))
-      .toEqual(["hnr-wordbook-source", "hnr-wordbook-section", "hnr-wordbook-source"]);
+      .toEqual(["hnr-wordbook-source", "hnr-wordbook-source", "hnr-wordbook-section"]);
     const shown = (): readonly string[] => panels.filter((panel) => !panel.hidden).map((panel) => panel.className);
 
     expect(shown()).toEqual(["hnr-wordbook-source"]);
     root.querySelectorAll<HTMLButtonElement>(".hnr-wordbook-tab")[1]?.click();
-    expect(shown()).toEqual(["hnr-wordbook-section"]);
-    root.querySelectorAll<HTMLButtonElement>(".hnr-wordbook-tab")[2]?.click();
     expect(shown()).toEqual(["hnr-wordbook-source"]);
+    root.querySelectorAll<HTMLButtonElement>(".hnr-wordbook-tab")[2]?.click();
+    expect(shown()).toEqual(["hnr-wordbook-section"]);
     expect(panels[2]?.hidden).toBe(false);
     expect(panels[0]?.hidden).toBe(true);
   });
@@ -201,13 +208,16 @@ describe("wordbook panel", () => {
     root.querySelector<HTMLButtonElement>('[data-wordbook-word="wordb"]')?.click();
     await flush();
     const panels = [...root.querySelectorAll<HTMLElement>(".hnr-wordbook-source")];
-    // Bilingual examples come from Tatoeba, with attribution and its word inked.
-    expect(panels[0]?.textContent).toContain("一个包含 wordb 的例句。");
-    expect(panels[0]?.querySelector("mark.hnr-wordbook-ink")?.textContent).toBe("wordb");
-    expect(panels[0]?.textContent).toContain("Tatoeba #42");
-    // English definitions come from Wiktionary.
-    expect(panels[1]?.textContent).toContain("a spelling rule");
-    expect(panels[1]?.querySelector("a")?.getAttribute("href")).toContain("en.wiktionary.org");
+    // English definitions keep Wiktionary's part of speech and examples visible.
+    expect(panels[0]?.textContent).toContain("a spelling rule");
+    expect(panels[0]?.textContent).toContain("A wordb spelling rule.");
+    expect(panels[0]?.querySelector("a")?.getAttribute("href")).toContain("en.wiktionary.org");
+    // Bilingual examples keep the sentence, attribution, contributors and licensing from Tatoeba.
+    expect(panels[1]?.textContent).toContain("一个包含 wordb 的例句。");
+    expect(panels[1]?.querySelector("mark.hnr-wordbook-ink")?.textContent).toBe("wordb");
+    expect(panels[1]?.textContent).toContain("Tatoeba #42 / #43");
+    expect(panels[1]?.textContent).toContain("英文 tester / 中文 translator");
+    expect(panels[1]?.textContent).toContain("CC BY 2.0 FR");
   });
 
   it("keeps the bilingual tab usable when the dictionary lookup fails", async () => {
@@ -215,9 +225,9 @@ describe("wordbook panel", () => {
     root.querySelector<HTMLButtonElement>('[data-wordbook-word="wordb"]')?.click();
     await flush();
     const panels = [...root.querySelectorAll<HTMLElement>(".hnr-wordbook-source")];
-    expect(panels[0]?.textContent).toContain("一个包含 wordb 的例句。");
+    expect(panels[1]?.textContent).toContain("一个包含 wordb 的例句。");
     // The failing provider reports itself instead of blanking the other one.
-    expect(panels[1]?.textContent).toMatch(/无法获取|暂未收录/);
+    expect(panels[0]?.textContent).toMatch(/无法获取|暂未收录/);
   });
 
   it("inks the saved word inside its own example sentence", () => {
@@ -226,6 +236,8 @@ describe("wordbook panel", () => {
     const sentence = root.querySelector<HTMLElement>(".hnr-wordbook-example");
     const mark = sentence?.querySelector<HTMLElement>("mark.hnr-wordbook-ink");
     expect(mark?.textContent).toBe("wordb");
+    expect(mark?.dataset.vocabularyInk).toBe("");
+    expect(mark?.querySelector(":scope > svg.hnr-vocabulary-brush")).not.toBeNull();
     expect(mark?.style.getPropertyValue("--hnr-vocabulary-ink")).toMatch(/^#/);
     expect(sentence?.textContent).toBe("An example with wordb inside.");
   });

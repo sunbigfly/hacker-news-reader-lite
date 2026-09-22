@@ -96,6 +96,54 @@ describe("word card hover", () => {
     expect(open).toBe(false);
     anchor.remove();
   });
+
+  it("pins a touch card, consumes an enclosing link click, and can reopen after self-dismissal", () => {
+    vi.useFakeTimers();
+    try {
+      const link = document.createElement("a");
+      link.href = "https://example.com/article";
+      const anchor = document.createElement("mark");
+      link.append(anchor);
+      document.body.append(link);
+      const followed = vi.fn();
+      link.addEventListener("click", followed);
+      let hooks: { readonly onDismiss: () => void } | undefined;
+      let open = false;
+      let opened = 0;
+      bindWordCard(anchor, (binding) => {
+        hooks = binding;
+        open = true;
+        opened += 1;
+        return () => { open = false; };
+      });
+
+      anchor.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+      vi.advanceTimersByTime(WORD_CARD_OPEN_DELAY_MS);
+      expect(open).toBe(false);
+
+      anchor.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+      anchor.dispatchEvent(new FocusEvent("focus"));
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+      anchor.dispatchEvent(click);
+      expect(open).toBe(true);
+      expect(click.defaultPrevented).toBe(true);
+      expect(followed).not.toHaveBeenCalled();
+
+      anchor.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "touch" }));
+      vi.advanceTimersByTime(WORD_CARD_CLOSE_DELAY_MS);
+      expect(open).toBe(true);
+
+      open = false;
+      hooks?.onDismiss();
+      anchor.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" }));
+      anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+      expect(open).toBe(true);
+      expect(opened).toBe(2);
+      link.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 afterEach(() => {

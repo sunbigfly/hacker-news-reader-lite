@@ -42,12 +42,6 @@ function labelled(document: Document, labelText: string, control: HTMLElement): 
   return wrapper;
 }
 
-function metaRow(document: Document, parts: readonly string[]): HTMLElement {
-  const meta = element(document, "div", "hnr-wordbook-meta");
-  for (const part of parts) if (part) meta.append(element(document, "span", "", part));
-  return meta;
-}
-
 function iconButton(document: Document, label: string, paths: readonly string[]): HTMLButtonElement {
   const node = vocabularyButton(document, label);
   node.className = "hnr-wordbook-icon";
@@ -155,6 +149,8 @@ export class WordbookPanel {
   }
 
   destroy(): void {
+    this.#detailController?.abort();
+    this.#detailController = null;
     stopWordSpeech();
     this.#words = Object.freeze([]);
     this.root.replaceChildren();
@@ -171,6 +167,8 @@ export class WordbookPanel {
 
   #renderList(): void {
     const document = this.#document;
+    this.#detailController?.abort();
+    this.#detailController = null;
     this.#detail.hidden = true;
     this.#detail.replaceChildren();
     // Returning from the second level restores the whole list page in one step.
@@ -196,18 +194,37 @@ export class WordbookPanel {
     const document = this.#document;
     const row = element(document, "article", "hnr-wordbook-row");
     row.dataset.wordbookRow = entry.word;
-    row.append(element(document, "span", "hnr-summary-history-number", String(index + 1).padStart(2, "0")));
+    const meta = element(document, "div", "hnr-wordbook-meta");
+    const savedAt = element(document, "time", "hnr-wordbook-date", timeText(entry.addedAt));
+    savedAt.dateTime = new Date(entry.addedAt).toISOString();
+    meta.append(
+      element(document, "span", "hnr-summary-history-number", String(index + 1).padStart(2, "0")),
+      element(document, "span", "hnr-wordbook-card-level hnr-wordbook-level", LEVEL_LABELS[entry.level]),
+      savedAt,
+    );
     const open = vocabularyButton(document, `查看 ${entry.word}`);
     open.className = "hnr-wordbook-open";
     open.dataset.wordbookWord = entry.word;
-    open.append(element(document, "strong", "hnr-wordbook-word", entry.word));
+    const identity = element(document, "span", "hnr-wordbook-identity");
+    identity.append(
+      element(document, "strong", "hnr-wordbook-word", entry.word),
+      element(document, "span", "hnr-wordbook-card-ipa", entry.ipa),
+    );
+    const meaning = element(document, "span", "hnr-wordbook-card-meaning", entry.meaning);
+    meaning.lang = "zh-Hans";
+    const example = element(document, "span", "hnr-wordbook-card-example", entry.example);
+    example.lang = "en";
+    open.append(identity, meaning, example);
     open.addEventListener("click", () => this.#renderDetail(entry));
+    const controls = element(document, "div", "hnr-wordbook-card-actions");
+    const sound = soundButton(document, entry);
     const remove = iconButton(document, `移除 ${entry.word}`, [
       "M4 7h16", "M10 11v6", "M14 11v6", "M6 7l1 13h10l1-13", "M9 7V4h6v3",
     ]);
     remove.classList.add("hnr-wordbook-remove");
     remove.addEventListener("click", () => this.#callbacks.onRemove(entry.word));
-    row.append(open, metaRow(document, [entry.ipa, entry.meaning, LEVEL_LABELS[entry.level]]), soundButton(document, entry), remove);
+    controls.append(sound, remove);
+    row.append(meta, controls, open);
     return row;
   }
 
@@ -256,12 +273,13 @@ export class WordbookPanel {
 
     const hero = element(document, "section", "hnr-wordbook-hero");
     const line = element(document, "div", "hnr-wordbook-hero-line");
-    line.append(
-      element(document, "strong", "hnr-wordbook-hero-word", entry.word),
+    const pronunciation = element(document, "div", "hnr-wordbook-pronunciation");
+    pronunciation.append(
       soundButton(document, entry),
       element(document, "span", "hnr-wordbook-hero-ipa", entry.ipa),
       element(document, "span", "hnr-wordbook-level", LEVEL_LABELS[entry.level]),
     );
+    line.append(element(document, "strong", "hnr-wordbook-hero-word", entry.word), pronunciation);
     const meaning = element(document, "p", "hnr-wordbook-hero-meaning", entry.meaning);
     meaning.lang = "zh-Hans";
     hero.append(line, meaning);
@@ -302,8 +320,8 @@ export class WordbookPanel {
     actions.append(source, remove);
     study.append(actions);
 
-    // One tab per source, exactly as the reference userscript does: offline dictionary, the two
-    // public lookups, and the example the word was collected with.
+    // Dictionary facts lead because they answer the word-level question immediately; the two example
+    // sources stay adjacent, and each network provider still owns an independent result slot.
     const dictionary = element(document, "div", "hnr-wordbook-source");
     const bilingual = element(document, "div", "hnr-wordbook-source");
     // Each provider owns its own slot, so one failing lookup can never blank the other.
@@ -311,7 +329,7 @@ export class WordbookPanel {
     const online = element(document, "div", "hnr-wordbook-slot", "正在读取在线词典…");
     dictionary.append(offline, online);
     bilingual.append(loadingNote(document, "正在读取双语例句…"));
-    const panels: readonly [string, HTMLElement][] = [["双语学习", bilingual], ["记忆例句", example], ["英文详解", dictionary]];
+    const panels: readonly [string, HTMLElement][] = [["词典释义", dictionary], ["双语例句", bilingual], ["收藏例句", example]];
     const tabs = element(document, "div", "hnr-wordbook-tabs");
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-label", "词汇来源");
@@ -321,12 +339,27 @@ export class WordbookPanel {
       tab.textContent = name;
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", String(index === 0));
+      tab.tabIndex = index === 0 ? 0 : -1;
       panel.hidden = index !== 0;
       const select = (): void => {
         panels.forEach(([, candidate], position) => { candidate.hidden = position !== index; });
-        controls.forEach((control, position) => control.setAttribute("aria-selected", String(position === index)));
+        controls.forEach((control, position) => {
+          control.setAttribute("aria-selected", String(position === index));
+          control.tabIndex = position === index ? 0 : -1;
+        });
       };
       tab.addEventListener("click", select);
+      tab.addEventListener("keydown", (event) => {
+        let position: number | undefined;
+        if (event.key === "ArrowRight") position = (index + 1) % panels.length;
+        if (event.key === "ArrowLeft") position = (index - 1 + panels.length) % panels.length;
+        if (event.key === "Home") position = 0;
+        if (event.key === "End") position = panels.length - 1;
+        if (position === undefined) return;
+        event.preventDefault();
+        controls[position]?.click();
+        controls[position]?.focus();
+      });
       tabs.append(tab);
       return tab;
     });
@@ -346,7 +379,8 @@ export class WordbookPanel {
    */
   #loadWordSources(entry: SavedWord, panels: { readonly bilingual: HTMLElement; readonly offline: HTMLElement; readonly online: HTMLElement }): void {
     const document = this.#document;
-    const controller = this.#detailController ?? new AbortController();
+    this.#detailController?.abort();
+    const controller = new AbortController();
     this.#detailController = controller;
     const { signal } = controller;
     const guard = (): boolean => signal.aborted || !panels.offline.isConnected;
@@ -358,6 +392,7 @@ export class WordbookPanel {
         return;
       }
       const block = element(document, "div", "hnr-wordbook-entry");
+      block.append(element(document, "span", "hnr-wordbook-provider", "ECDICT · 离线词库"));
       block.append(element(document, "p", "hnr-wordbook-gloss", local.meaning));
       const tags = wordTagLabels(local.tags);
       if (tags.length > 0) {
@@ -381,14 +416,28 @@ export class WordbookPanel {
         panels.bilingual.append(element(document, "p", "hnr-wordbook-note", "暂未找到直接对应的中文例句。"));
         return;
       }
+      panels.bilingual.append(element(document, "span", "hnr-wordbook-provider", `Tatoeba · ${result.cached ? "会话缓存" : "在线获取"}`));
       for (const example of result.value) {
+        const item = element(document, "article", "hnr-wordbook-api-entry");
         const line = element(document, "p", "hnr-wordbook-example");
         line.lang = "en";
         appendInkedWord(document, line, example.english, entry.word);
         const translated = element(document, "p", "hnr-wordbook-example-meaning", example.chinese);
         translated.lang = "zh-Hans";
-        const attribution = element(document, "p", "hnr-wordbook-note", `Tatoeba #${example.id} · ${example.license || "许可见来源"}`);
-        panels.bilingual.append(line, translated, attribution);
+        const contributors = [
+          example.owner ? `英文 ${example.owner}` : "",
+          example.translationOwner ? `中文 ${example.translationOwner}` : "",
+        ].filter(Boolean).join(" / ");
+        const licenses = example.translationLicense && example.translationLicense !== example.license
+          ? `${example.license || "许可见来源"} / ${example.translationLicense}`
+          : example.license || example.translationLicense || "许可见来源";
+        const attribution = element(document, "p", "hnr-wordbook-note", [
+          `Tatoeba #${example.id} / #${example.translationId}`,
+          contributors,
+          licenses,
+        ].filter(Boolean).join(" · "));
+        item.append(line, translated, attribution);
+        panels.bilingual.append(item);
       }
     }).catch(() => {
       if (signal.aborted || !panels.bilingual.isConnected) return;
@@ -398,17 +447,24 @@ export class WordbookPanel {
     void this.#lookup.loadDictionary(entry.word, signal).then((result) => {
       if (signal.aborted || !panels.online.isConnected) return;
       const block = element(document, "div", "hnr-wordbook-dictionary");
+      block.append(element(document, "span", "hnr-wordbook-provider", `Wiktionary · ${result.cached ? "会话缓存" : "在线获取"}`));
       for (const sense of result.value) {
-        block.append(element(document, "h4", "", sense.partOfSpeech || "释义"));
+        const group = element(document, "section", "hnr-wordbook-sense");
+        group.append(element(document, "h4", "", sense.partOfSpeech || "释义"));
         const list = element(document, "ol", "hnr-wordbook-definitions");
         for (const definition of sense.definitions) {
           const item = element(document, "li", "", definition.definition);
-          if (definition.example) item.append(element(document, "p", "hnr-wordbook-note", definition.example));
+          for (const value of definition.example.split("\n").filter(Boolean)) {
+            const example = element(document, "p", "hnr-wordbook-definition-example");
+            appendInkedWord(document, example, value, entry.word);
+            item.append(example);
+          }
           list.append(item);
         }
-        block.append(list);
+        group.append(list);
+        block.append(group);
       }
-      const link = element(document, "a", "hnr-wordbook-note", "来源 Wiktionary");
+      const link = element(document, "a", "hnr-wordbook-source-link", "在 Wiktionary 查看完整词条");
       link.href = `https://en.wiktionary.org/wiki/${encodeURIComponent(entry.word)}`;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
@@ -433,6 +489,7 @@ function appendInkedWord(document: Document, target: HTMLElement, sentence: stri
   for (const match of sentence.matchAll(pattern)) {
     target.append(sentence.slice(offset, match.index));
     const mark = element(document, "mark", "hnr-wordbook-ink", match[0]);
+    mark.dataset.vocabularyInk = "";
     applyVocabularyInk(mark, 0);
     target.append(mark);
     offset = match.index + match[0].length;

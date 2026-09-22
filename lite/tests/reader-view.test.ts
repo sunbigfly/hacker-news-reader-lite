@@ -1281,6 +1281,59 @@ describe("ReaderView", () => {
     scope.destroy();
   });
 
+  it("opens a marked word card from a compact touch viewport without activating its parent", () => {
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const scope = new LifecycleScope();
+    try {
+      document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+      const snapshot = parseHnDocument(document);
+      const tree = new CommentTree(snapshot.story, snapshot.comments);
+      const view = new ReaderView(document, tree, new CommentProjection(tree), true, {
+        onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+      }, scope, "", document.body);
+      let target: CommentId = 0 as CommentId;
+      let words: readonly VocabularyWord[] = Object.freeze([]);
+      view.setVocabularyActions({
+        onRequest: (id) => (id === target && words.length > 0 ? { words } : undefined),
+        onOpenWordbook: vi.fn(),
+      });
+      view.applySettings({ ...DEFAULT_SETTINGS, vocabularyEnabled: true });
+      view.update(tree, new CommentProjection(tree), true);
+
+      const candidate = [...view.surfaceRoot.querySelectorAll<HTMLElement>(".hnr-comment[data-comment-id]")].flatMap((comment) => {
+        const keyword = (comment.querySelector<HTMLElement>(".hnr-original-text")?.textContent ?? "").match(/[a-z]{7,}/i)?.[0];
+        return keyword ? [{ comment, keyword }] : [];
+      })[0];
+      if (!candidate) throw new Error("Fixture did not mount a comment with a long English word");
+      target = Number.parseInt(candidate.comment.dataset.commentId ?? "", 10) as CommentId;
+      words = Object.freeze([{
+        word: candidate.keyword.toLowerCase(),
+        ipa: `/${candidate.keyword.toLowerCase()}/`,
+        meaning: `${candidate.keyword} 的释义`,
+        example: `An example with ${candidate.keyword} inside.`,
+        exampleMeaning: `一个包含 ${candidate.keyword} 的例句。`,
+        level: "CET6",
+      }]);
+      view.refreshVocabulary();
+
+      const mark = view.surfaceRoot.querySelector<HTMLElement>("mark[data-vocabulary-ink]");
+      if (!mark) throw new Error("no marked word to tap");
+      const parentClick = vi.fn();
+      mark.parentElement?.addEventListener("click", parentClick);
+      mark.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+      const click = new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+      mark.dispatchEvent(click);
+
+      expect(click.defaultPrevented).toBe(true);
+      expect(parentClick).not.toHaveBeenCalled();
+      expect(view.surfaceRoot.querySelector(".hnr-word-popup")).not.toBeNull();
+    } finally {
+      scope.destroy();
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+    }
+  });
+
   it("inks the copy of the comment the reader actually shows, not the hidden original", () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document);

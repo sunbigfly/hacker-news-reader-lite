@@ -944,23 +944,29 @@ mark[data-vocabulary-ink][data-vocabulary-wrap] > .hnr-vocabulary-brush { displa
 .hnr-wordbook-field { display: grid; flex: 0 1 auto; min-width: 0; gap: 4px; color: var(--hnr-muted); font: 650 9px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; }
 .hnr-wordbook-field select { width: 100%; min-width: 0; height: 34px; padding: 5px 8px; border: 1px solid var(--hnr-line); border-radius: 7px; background: var(--hnr-paper-raised); color: var(--hnr-ink); font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif; }
 
-.hnr-wordbook-list { display: grid; min-width: 0; margin-top: 6px; }
-.hnr-wordbook-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 3px 10px; align-items: center; padding: 13px 8px; border-bottom: 1px solid var(--hnr-line); }
-.hnr-wordbook-row:hover { background: color-mix(in srgb, var(--hnr-accent) 5%, transparent); }
-.hnr-wordbook-row .hnr-summary-history-number { grid-row: 1 / 3; align-self: start; }
-.hnr-wordbook-open { grid-column: 2; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
-.hnr-wordbook-word { min-width: 0; overflow: hidden; font: 750 14px/1.35 var(--hnr-title-font-family, ui-serif, Georgia, serif); text-overflow: ellipsis; white-space: nowrap; }
-.hnr-wordbook-meta { grid-column: 2; display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; }
-.hnr-wordbook-meta > * { min-width: 0; overflow: hidden; color: var(--hnr-muted); font: 650 9px/1.2 ui-sans-serif, system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-.hnr-wordbook-meta > * + *::before { margin-right: 5px; content: "/"; color: var(--hnr-line); }
-.hnr-wordbook-level { color: var(--hnr-accent-dark); }
+.hnr-wordbook-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); align-items: start; gap: 10px; min-width: 0; margin-top: 14px; }
+.hnr-wordbook-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; min-width: 0; padding: 13px 14px 14px; overflow: hidden; border: 1px solid var(--hnr-line); border-radius: 11px; background: var(--hnr-paper-raised); transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.hnr-wordbook-row::before { position: absolute; inset: 0 auto 0 0; width: 3px; content: ""; background: color-mix(in srgb, var(--hnr-accent) 72%, var(--hnr-line)); }
+.hnr-wordbook-row:focus-within { border-color: var(--hnr-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--hnr-accent) 18%, transparent); }
+.hnr-wordbook-meta { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px; }
+.hnr-wordbook-row .hnr-summary-history-number { color: var(--hnr-accent-dark); font-size: 10px; }
+.hnr-wordbook-card-level { padding: 2px 6px; border: 1px solid color-mix(in srgb, var(--hnr-accent) 34%, var(--hnr-line)); border-radius: 999px; color: var(--hnr-accent-dark); font: 700 8px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: .03em; }
+.hnr-wordbook-date { color: var(--hnr-muted); font: 600 9px/1.2 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-card-actions { display: flex; align-items: center; gap: 2px; }
+.hnr-wordbook-open { grid-column: 1 / -1; display: grid; min-width: 0; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.hnr-wordbook-open:focus-visible { outline: 0; }
+.hnr-wordbook-identity { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: 5px 9px; }
+.hnr-wordbook-word { min-width: 0; overflow: hidden; font: 760 19px/1.18 var(--hnr-title-font-family, ui-serif, Georgia, serif); letter-spacing: -.015em; text-overflow: ellipsis; white-space: nowrap; }
+.hnr-wordbook-card-ipa { min-width: 0; overflow: hidden; color: var(--hnr-muted); font: 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.hnr-wordbook-card-meaning { color: var(--hnr-ink); font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+.hnr-wordbook-card-example { display: -webkit-box; overflow: hidden; color: var(--hnr-muted); font: 11px/1.45 var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
-.hnr-wordbook-icon { grid-row: 1 / 3; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--hnr-muted); cursor: pointer; }
+.hnr-wordbook-icon { display: grid; width: 38px; height: 38px; padding: 0; place-items: center; border: 1px solid transparent; border-radius: 50%; background: transparent; color: var(--hnr-muted); cursor: pointer; }
 .hnr-wordbook-icon:hover, .hnr-wordbook-icon:focus-visible { border-color: var(--hnr-line); color: var(--hnr-ink); }
 .hnr-wordbook-remove:hover, .hnr-wordbook-remove:focus-visible { border-color: color-mix(in srgb, var(--hnr-danger) 55%, var(--hnr-line)); color: var(--hnr-danger); }
 .hnr-wordbook-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .hnr-wordbook-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.hnr-wordbook-row .hnr-word-sound { grid-row: 1 / 3; width: 30px; height: 30px; opacity: .8; }
+.hnr-wordbook-row .hnr-word-sound { width: 38px; height: 38px; opacity: .8; }
 
 .hnr-wordbook-empty { margin: 18px 0 0; padding: 24px; border: 1px dashed var(--hnr-line); border-radius: 9px; color: var(--hnr-muted); font: 12px/1.5 ui-sans-serif, system-ui, sans-serif; text-align: center; }
 .hnr-wordbook-pages { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; color: var(--hnr-muted); font: 650 10px/1.2 ui-sans-serif, system-ui, sans-serif; }
@@ -971,65 +977,74 @@ mark[data-vocabulary-ink][data-vocabulary-wrap] > .hnr-vocabulary-brush { displa
 /* Second level of the pane: a sticky route bar, then the entry and its study facts. `display: grid`
    would beat the plain `hidden` attribute, so each level declares its own guard. */
 .hnr-wordbook-page-list[hidden], .hnr-wordbook-detail[hidden] { display: none !important; }
-.hnr-wordbook-detail { display: grid; gap: 16px; min-width: 0; }
-.hnr-wordbook-nav { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -18px -18px 0; padding: 10px 18px; border-bottom: 1px solid var(--hnr-line); background: var(--hnr-paper-raised); }
-.hnr-wordbook-back { height: 30px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 6px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; }
+.hnr-wordbook-detail { display: grid; gap: 14px; min-width: 0; }
+.hnr-wordbook-nav { position: sticky; top: 0; z-index: 2; display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 12px; margin: -18px -18px 0; padding: 7px 18px; border-bottom: 1px solid var(--hnr-line); background: color-mix(in srgb, var(--hnr-paper-raised) 94%, transparent); }
+.hnr-wordbook-back { min-height: 34px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 7px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; white-space: nowrap; }
 .hnr-wordbook-back:hover, .hnr-wordbook-back:focus-visible { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
-.hnr-wordbook-hero { position: relative; display: grid; gap: 8px; padding: 16px 18px; border: 1px solid var(--hnr-line); border-radius: 10px; background: var(--hnr-paper-raised); }
+.hnr-wordbook-hero { position: relative; display: grid; gap: 11px; padding: 17px 18px 16px; border: 1px solid var(--hnr-line); border-radius: 11px; background: var(--hnr-paper-raised); }
 .hnr-wordbook-hero::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; content: ""; background: var(--hnr-accent); border-radius: 10px 0 0 10px; }
-.hnr-wordbook-hero-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 10px; min-width: 0; }
-.hnr-wordbook-hero-word { font: 750 24px/1.15 var(--hnr-title-font-family, ui-serif, Georgia, serif); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hnr-wordbook-hero-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; min-width: 0; }
+.hnr-wordbook-hero-word { min-width: 0; font: 760 clamp(22px, 4.5cqi, 30px)/1.12 var(--hnr-title-font-family, ui-serif, Georgia, serif); letter-spacing: -.025em; overflow-wrap: anywhere; }
+.hnr-wordbook-pronunciation { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .hnr-wordbook-hero-ipa { color: var(--hnr-muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.hnr-wordbook-hero-meaning { margin: 0; font: 14px/1.6 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
-.hnr-wordbook-hero .hnr-wordbook-level { align-self: center; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--hnr-accent) 40%, var(--hnr-line)); border-radius: 999px; font: 650 9px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; }
+.hnr-wordbook-hero-meaning { max-width: 54ch; margin: 0; font: 14px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
+.hnr-wordbook-hero .hnr-wordbook-level { align-self: center; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--hnr-accent) 40%, var(--hnr-line)); border-radius: 999px; color: var(--hnr-accent-dark); font: 650 9px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .04em; }
 .hnr-wordbook-hero .hnr-word-sound { align-self: center; width: 26px; height: 26px; opacity: .85; }
 /* One reading measure on the left, the study facts as a rail on the right, exactly like the
    reference userscript's detail page. */
-.hnr-wordbook-columns { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 20px; align-items: start; }
-.hnr-wordbook-main { display: grid; min-width: 0; gap: 10px; }
-.hnr-wordbook-section { display: grid; gap: 6px; padding: 0 2px; }
-.hnr-wordbook-section h3 { margin: 4px 0 0; font: 750 14px/1.25 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
-.hnr-wordbook-example { margin: 0; font: 15px/1.6 var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); overflow-wrap: anywhere; }
+.hnr-wordbook-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 210px); gap: 18px; align-items: start; }
+.hnr-wordbook-main { display: grid; min-width: 0; gap: 12px; }
+.hnr-wordbook-section { display: grid; gap: 7px; padding: 2px; }
+.hnr-wordbook-section h3 { margin: 3px 0 0; font: 750 15px/1.25 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
+.hnr-wordbook-example { margin: 0; font: 14px/1.6 var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); overflow-wrap: anywhere; }
 .hnr-wordbook-section > .hnr-wordbook-example { margin-top: 3px; }
 .hnr-wordbook-example-meaning { margin: 2px 0 0; color: var(--hnr-muted); font: 12px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
-.hnr-wordbook-ink { color: inherit; background-color: var(--hnr-vocabulary-ink-soft, transparent); text-decoration: none; }
-.hnr-wordbook-study { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--hnr-line); border-radius: 10px; background: color-mix(in srgb, var(--hnr-paper) 62%, transparent); }
-.hnr-wordbook-study h3 { margin: 0; font: 750 11px/1.3 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
-.hnr-wordbook-study dl { display: grid; gap: 2px; margin: 0; font: 10px/1.5 ui-sans-serif, system-ui, sans-serif; }
-.hnr-wordbook-study dt { margin-top: 7px; color: var(--hnr-muted); font-size: 9px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.hnr-wordbook-ink { color: inherit; background-color: transparent; text-decoration: none; }
+.hnr-wordbook-study { display: grid; gap: 11px; padding: 14px; border: 1px solid var(--hnr-line); border-radius: 10px; background: color-mix(in srgb, var(--hnr-paper) 62%, transparent); }
+.hnr-wordbook-study h3 { margin: 0; font: 750 13px/1.3 var(--hnr-title-font-family, ui-serif, Georgia, serif); }
+.hnr-wordbook-study dl { display: grid; gap: 3px; margin: 0; font: 11px/1.5 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-study dt { margin-top: 7px; color: var(--hnr-muted); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .hnr-wordbook-study dd { margin: 0; overflow-wrap: anywhere; }
 .hnr-wordbook-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.hnr-wordbook-action { height: 30px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 6px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-action { min-height: 34px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 7px; background: var(--hnr-paper-raised); color: var(--hnr-ink); cursor: pointer; font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; }
 .hnr-wordbook-action:hover { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
 .hnr-wordbook-action-danger:hover { border-color: color-mix(in srgb, var(--hnr-danger) 55%, var(--hnr-line)); color: var(--hnr-danger); }
 
 /* Source tabs. The reference userscript switches panels with a segmented bar; here the segments keep
    the workbench's flat borders and only the selected one carries the accent. */
-.hnr-wordbook-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--hnr-line); }
-.hnr-wordbook-tab { height: 28px; padding: 0 11px; border: 1px solid var(--hnr-line); border-radius: 999px; background: transparent; color: var(--hnr-muted); cursor: pointer; font: 700 10px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em; }
+.hnr-wordbook-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 11px; border-bottom: 1px solid var(--hnr-line); }
+.hnr-wordbook-tab { min-height: 34px; padding: 0 12px; border: 1px solid var(--hnr-line); border-radius: 999px; background: transparent; color: var(--hnr-muted); cursor: pointer; font: 700 11px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: .01em; }
 .hnr-wordbook-tab:hover { border-color: var(--hnr-accent); color: var(--hnr-accent-dark); }
 .hnr-wordbook-tab[aria-selected="true"] { border-color: var(--hnr-accent); background: color-mix(in srgb, var(--hnr-accent) 12%, transparent); color: var(--hnr-accent-dark); }
 /* Each tab panel carries its own `display`, which beats the plain `hidden` attribute, so the guard
    lives on the container and covers every panel the tab bar can close. */
 .hnr-wordbook-main > [hidden] { display: none !important; }
-.hnr-wordbook-source { display: grid; gap: 12px; min-width: 0; }
+.hnr-wordbook-source { display: grid; gap: 13px; min-width: 0; }
 .hnr-wordbook-source[hidden] { display: none !important; }
-.hnr-wordbook-slot { display: grid; gap: 8px; min-width: 0; }
+.hnr-wordbook-slot { display: grid; gap: 9px; min-width: 0; padding: 13px 14px; border: 1px solid var(--hnr-line); border-radius: 10px; background: color-mix(in srgb, var(--hnr-paper-raised) 76%, transparent); }
 .hnr-wordbook-slot:empty::before { content: ""; }
-.hnr-wordbook-entry, .hnr-wordbook-dictionary { display: grid; gap: 8px; min-width: 0; }
+.hnr-wordbook-entry, .hnr-wordbook-dictionary { display: grid; gap: 10px; min-width: 0; }
+.hnr-wordbook-provider { color: var(--hnr-accent-dark); font: 750 9px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
 .hnr-wordbook-gloss { margin: 0; color: var(--hnr-ink); font: 14px/1.7 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
 .hnr-wordbook-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .hnr-wordbook-tag { padding: 2px 7px; border: 1px solid var(--hnr-line); border-radius: 999px; color: var(--hnr-muted); font: 650 9px/1.4 ui-sans-serif, system-ui, sans-serif; }
 .hnr-wordbook-forms { margin: 0; color: var(--hnr-muted); font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
-.hnr-wordbook-dictionary h4 { margin: 2px 0 0; color: var(--hnr-accent-dark); font: 700 11px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
-.hnr-wordbook-definitions { display: grid; gap: 6px; margin: 0; padding-left: 18px; font: 13px/1.6 ui-sans-serif, system-ui, sans-serif; }
+.hnr-wordbook-sense { display: grid; gap: 6px; }
+.hnr-wordbook-sense + .hnr-wordbook-sense { padding-top: 10px; border-top: 1px solid var(--hnr-line); }
+.hnr-wordbook-dictionary h4 { margin: 2px 0 0; color: var(--hnr-accent-dark); font: 750 11px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
+.hnr-wordbook-definitions { display: grid; gap: 9px; margin: 0; padding-left: 19px; font: 13px/1.58 ui-sans-serif, system-ui, sans-serif; }
 .hnr-wordbook-definitions > li { overflow-wrap: anywhere; }
-.hnr-wordbook-definitions .hnr-wordbook-note { margin: 3px 0 0; }
+.hnr-wordbook-definition-example { margin: 4px 0 0; color: var(--hnr-muted); font: 12px/1.5 var(--hnr-content-font-family, ui-serif, Charter, Georgia, serif); }
+.hnr-wordbook-api-entry { display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--hnr-line); }
+.hnr-wordbook-api-entry:last-child { border-bottom: 0; }
 .hnr-wordbook-note { margin: 0; color: var(--hnr-muted); font: 10px/1.55 ui-sans-serif, system-ui, sans-serif; overflow-wrap: anywhere; }
-a.hnr-wordbook-note { width: fit-content; text-decoration: none; border-bottom: 1px dotted var(--hnr-line); }
-a.hnr-wordbook-note:hover { color: var(--hnr-accent-dark); border-bottom-color: var(--hnr-accent); }
+.hnr-wordbook-source-link { width: fit-content; color: var(--hnr-muted); font: 700 10px/1.45 ui-sans-serif, system-ui, sans-serif; text-decoration: none; border-bottom: 1px dotted var(--hnr-line); }
+.hnr-wordbook-source-link:hover, .hnr-wordbook-source-link:focus-visible { color: var(--hnr-accent-dark); border-bottom-color: var(--hnr-accent); }
 
-:host([data-theme="dark"]) .hnr-wordbook-row:hover { background: color-mix(in srgb, var(--hnr-accent) 10%, transparent); }
+@media (hover: hover) {
+  .hnr-wordbook-row:hover { border-color: color-mix(in srgb, var(--hnr-accent) 42%, var(--hnr-line)); box-shadow: 0 8px 20px rgb(25 32 38 / 7%); transform: translateY(-1px); }
+  :host([data-theme="dark"]) .hnr-wordbook-row:hover { box-shadow: 0 8px 22px rgb(0 0 0 / 24%); }
+}
 :host([data-theme="dark"]) .hnr-word-row .hnr-word-label { color: #f1ece2; }
 
 @media (max-width: 900px) {
@@ -1039,18 +1054,26 @@ a.hnr-wordbook-note:hover { color: var(--hnr-accent-dark); border-bottom-color: 
 
 @container hnr-reader (max-width: 780px) {
   .hnr-wordbook-pane { padding: 14px; }
-  .hnr-wordbook-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 3px 8px; padding: 12px 6px; }
   .hnr-wordbook-nav { margin: -14px -14px 0; padding: 8px 14px; }
   .hnr-wordbook-columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .hnr-wordbook-study { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .hnr-wordbook-study h3, .hnr-wordbook-study dl { grid-column: 1; }
+  .hnr-wordbook-actions { grid-column: 2; grid-row: 1 / 3; align-self: center; }
 }
 
 @container hnr-reader (max-width: 520px) {
   .hnr-wordbook-toolbar { gap: 8px; }
   .hnr-wordbook-search { flex: 1 1 100%; }
-  .hnr-wordbook-icon, .hnr-wordbook-row .hnr-word-sound { width: 34px; height: 34px; }
+  .hnr-wordbook-list { grid-template-columns: minmax(0, 1fr); }
+  .hnr-wordbook-row { padding: 12px 13px 13px; }
+  .hnr-wordbook-icon, .hnr-wordbook-row .hnr-word-sound { width: 40px; height: 40px; }
   .hnr-wordbook-nav { flex-wrap: wrap; }
-  .hnr-wordbook-hero { padding: 14px; }
-  .hnr-wordbook-hero-word { font-size: 20px; }
+  .hnr-wordbook-back, .hnr-wordbook-tab, .hnr-wordbook-action, .hnr-wordbook-page { min-height: 40px; }
+  .hnr-wordbook-hero { padding: 14px 15px; }
+  .hnr-wordbook-hero-line { grid-template-columns: minmax(0, 1fr); }
+  .hnr-wordbook-pronunciation { justify-content: flex-start; }
   .hnr-wordbook-tabs { gap: 5px; }
-  .hnr-wordbook-tab { padding: 0 9px; }
+  .hnr-wordbook-tab { flex: 1 1 auto; padding: 0 9px; }
+  .hnr-wordbook-study { grid-template-columns: minmax(0, 1fr); }
+  .hnr-wordbook-study h3, .hnr-wordbook-study dl, .hnr-wordbook-actions { grid-column: 1; grid-row: auto; }
 }

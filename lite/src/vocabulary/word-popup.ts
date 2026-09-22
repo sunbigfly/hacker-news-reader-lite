@@ -11,12 +11,15 @@ export interface WordPopupOptions {
   readonly onPointerEnter?: () => void;
   /** Pointer left the card: the caller may close once the pointer is on neither element. */
   readonly onPointerLeave?: () => void;
+  /** The card closed itself through an outside press, page movement, or Escape. */
+  readonly onDismiss?: () => void;
 }
 
 /** What a hovered card tells its anchor about the pointer, so the pair can stay open across the gap. */
 export interface WordCardHooks {
   readonly onPointerEnter: () => void;
   readonly onPointerLeave: () => void;
+  readonly onDismiss: () => void;
 }
 
 /** How long the pointer must rest on a word before its card is worth showing. */
@@ -31,12 +34,16 @@ export const WORD_CARD_CLOSE_DELAY_MS = 180;
  * Reading sweeps the pointer across many words, so opening on contact buries the text under cards nobody
  * asked for: the card waits for a deliberate dwell. Leaving only books a close, because the pointer is
  * usually on its way into the card, and keyboard focus opens at once — waiting there serves nobody.
+ * A direct pointer (touch or pen) has no hover, so a tap pins the card until the next tap, an outside
+ * press, scrolling, or Escape. The tap is consumed because a marked word can sit inside a link.
  */
 export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) => () => void): void {
   const view = anchor.ownerDocument.defaultView;
   let dismiss: (() => void) | undefined;
   let openTimer: number | null = null;
   let closeTimer: number | null = null;
+  let directPointerActivation = false;
+  let pinned = false;
   const clearTimer = (timer: number | null): null => {
     if (timer !== null && view) view.clearTimeout(timer);
     return null;
@@ -50,10 +57,13 @@ export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) =
   const close = (): void => {
     cancelOpen();
     cancelClose();
-    dismiss?.();
+    const dispose = dismiss;
     dismiss = undefined;
+    pinned = false;
+    dispose?.();
   };
   const scheduleClose = (): void => {
+    if (pinned) return;
     cancelClose();
     if (!view) {
       close();
@@ -65,9 +75,20 @@ export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) =
     cancelOpen();
     cancelClose();
     if (dismiss) return;
-    dismiss = open({ onPointerEnter: cancelClose, onPointerLeave: scheduleClose });
+    dismiss = open({
+      onPointerEnter: cancelClose,
+      onPointerLeave: scheduleClose,
+      onDismiss: () => {
+        dismiss = undefined;
+        pinned = false;
+        cancelOpen();
+        cancelClose();
+      },
+    });
   };
-  const scheduleOpen = (): void => {
+  const isDirectPointer = (event: PointerEvent): boolean => event.pointerType !== "" && event.pointerType !== "mouse";
+  const scheduleOpen = (event: PointerEvent): void => {
+    if (isDirectPointer(event)) return;
     cancelOpen();
     if (!view) {
       show();
@@ -75,14 +96,37 @@ export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) =
     }
     openTimer = view.setTimeout(show, WORD_CARD_OPEN_DELAY_MS);
   };
-  const leave = (): void => {
+  const leave = (event: PointerEvent): void => {
+    if (isDirectPointer(event)) return;
     cancelOpen();
     scheduleClose();
   };
+  const rememberPointer = (event: PointerEvent): void => {
+    directPointerActivation = isDirectPointer(event);
+    if (!directPointerActivation) return;
+    cancelOpen();
+    cancelClose();
+  };
+  const activate = (event: MouseEvent): void => {
+    const direct = directPointerActivation || event.detail === 0;
+    directPointerActivation = false;
+    if (!direct) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (dismiss) {
+      close();
+      return;
+    }
+    pinned = true;
+    show();
+  };
   anchor.addEventListener("pointerenter", scheduleOpen);
-  anchor.addEventListener("focus", show);
+  anchor.addEventListener("pointerdown", rememberPointer);
+  anchor.addEventListener("pointercancel", () => { directPointerActivation = false; });
+  anchor.addEventListener("click", activate);
+  anchor.addEventListener("focus", () => { if (!directPointerActivation) show(); });
   anchor.addEventListener("pointerleave", leave);
-  anchor.addEventListener("blur", close);
+  anchor.addEventListener("blur", () => { if (!pinned) close(); });
 }
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -262,7 +306,11 @@ export function showWordPopup(options: WordPopupOptions): () => void {
     if (path.includes(host) || path.includes(anchor)) return;
     close();
   };
+  let closed = false;
   const close = (): void => {
+    if (closed) return;
+    closed = true;
+    observer?.disconnect();
     stopWordSpeech();
     window.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("resize", onScroll);
@@ -271,6 +319,7 @@ export function showWordPopup(options: WordPopupOptions): () => void {
     host.removeEventListener("pointerenter", onHostEnter);
     host.removeEventListener("pointerleave", onHostLeave);
     host.remove();
+    options.onDismiss?.();
   };
   const onHostEnter = (): void => options.onPointerEnter?.();
   const onHostLeave = (): void => options.onPointerLeave?.();
@@ -285,10 +334,7 @@ export function showWordPopup(options: WordPopupOptions): () => void {
   positionPopup(anchor, host, naturalSize);
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => positionPopup(anchor, host, naturalSize)) : undefined;
   observer?.observe(host);
-  return () => {
-    observer?.disconnect();
-    close();
-  };
+  return close;
 }
 
 /** Property values that do not establish a containing block; blanks appear in partial CSS engines. */

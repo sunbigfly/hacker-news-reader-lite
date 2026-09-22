@@ -815,6 +815,7 @@ export class ReaderView {
             sourceUrl,
             onPointerEnter: hooks.onPointerEnter,
             onPointerLeave: hooks.onPointerLeave,
+            onDismiss: hooks.onDismiss,
           })
         : undefined,
     });
@@ -888,14 +889,12 @@ export class ReaderView {
       sourceUrl,
       onPointerEnter: hooks.onPointerEnter,
       onPointerLeave: hooks.onPointerLeave,
+      onDismiss: hooks.onDismiss,
     }));
   }
 
   #supportsWordPopup(): boolean {
-    const view = this.document.defaultView;
-    if (!view) return false;
-    if (view.innerWidth <= 700) return false;
-    return typeof view.matchMedia !== "function" || view.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    return this.document.defaultView !== null;
   }
 
   /** The story parameter lets the wordbook jump back to the thread a word came from. */
