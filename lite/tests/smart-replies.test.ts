@@ -138,7 +138,11 @@ describe("smart reply controls", () => {
     scopes.push(scope);
     const projection = new CommentProjection(tree);
     const view = new ReaderView(document, tree, projection, true, {
-      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onToggleComment: vi.fn(), onLoadMissing: vi.fn(),
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onLoadMissing: vi.fn(),
+      onToggleComment: (id) => {
+        projection.toggle(id);
+        view.update(tree, projection, true);
+      },
       onReplyAction: (id, action) => {
         if (action === "expand") projection.expandReplies(id);
         else projection.collapseReplies(id);
@@ -147,6 +151,25 @@ describe("smart reply controls", () => {
     }, scope, "", document.body);
     return { view, projection };
   }
+
+  it.each([40, 360, 520])("keeps newly expanded replies visible when their control starts at %s", (buttonTop) => {
+    const { view } = render();
+    const viewport = element(view.surfaceRoot, ".hnr-comments");
+    viewport.scrollTop = 200;
+    const rect = (top: number, height: number): DOMRect => ({
+      x: 0, y: top, top, right: 800, bottom: top + height, left: 0,
+      width: 800, height, toJSON: () => ({}),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this === viewport) return rect(100, 400);
+      if (this.dataset.action === "expand-replies") return rect(buttonTop, 40);
+      if (this.dataset.commentId === "3") return rect(660 - viewport.scrollTop, 112);
+      return rect(0, 0);
+    });
+    element(view.surfaceRoot, '[data-action="expand-replies"]').click();
+    const firstReply = element(view.surfaceRoot, '.hnr-comment[data-comment-id="3"]');
+    expect(firstReply.getBoundingClientRect().top).toBe(buttonTop === 360 ? 360 : 115);
+  });
 
   it.each([false, true])("pins expanded replies to the clicked control through later layout updates (missing: %s)", async (missing) => {
     const tree = missing
@@ -182,7 +205,7 @@ describe("smart reply controls", () => {
     expect(viewport.scrollTop).toBe(scrollTop);
   });
 
-  it("retains parent text, mounts replies only after activation, and can hide replies alone", () => {
+  it.each([false, true])("keeps the parent body independently collapsible after expanding replies (collapsed: %s)", (bodyCollapsed) => {
     const { view, projection } = render();
     const root = view.surfaceRoot;
     expect(root.querySelector<HTMLElement>(".hnr-comment-body")?.hidden).toBe(false);
@@ -191,13 +214,15 @@ describe("smart reply controls", () => {
     root.querySelector<HTMLButtonElement>('[data-action="expand-replies"]')?.click();
     expect(ids(projection)).toHaveLength(21);
     expect(root.querySelectorAll(".hnr-comment").length).toBeGreaterThan(1);
-    root.querySelector<HTMLButtonElement>('[data-action="collapse-replies"]')?.click();
-    expect(root.querySelectorAll(".hnr-comment")).toHaveLength(1);
-    expect(root.querySelector<HTMLElement>(".hnr-comment-body")?.hidden).toBe(false);
-    expect(root.querySelector(".hnr-replies-button")?.textContent).toBe("展开 45 条回复");
+    if (bodyCollapsed) element(root, '.hnr-comment[data-comment-id="2"] .hnr-author-marker').click();
+    expect(root.querySelector('[data-action="collapse-replies"]')).toBeNull();
+    expect(root.querySelector<HTMLElement>(".hnr-comment-body")?.hidden).toBe(bodyCollapsed);
+    expect(root.querySelector<HTMLElement>(".hnr-comment-actions")?.hidden).toBe(false);
+    expect(projection.entries()[0]).toMatchObject({ bodyCollapsed, collapsed: false, repliesExpanded: true });
+    expect(projection.replyWindows()).toContainEqual({ id: 2, count: 20 });
   });
 
-  it("keeps the second-level expansion point after collapsing and reopening the same branch", async () => {
+  it("keeps expanded nested replies and their parent anchor across branch toggles", async () => {
     const children = Array.from({ length: 21 }, (_, index) => index + 4);
     const tree = new CommentTree(story, [comment(2, 1, [3]), comment(3, 2, children), ...children.map((id) => comment(id, 3))]);
     const { view, projection } = render(tree);
@@ -216,22 +241,28 @@ describe("smart reply controls", () => {
     });
     viewport.scrollTop = 300;
     element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="2"]').click();
+    viewport.scrollTop = 900 - 420;
+    element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="3"]').click();
+    const childTop = () => element(view.surfaceRoot, '.hnr-comment[data-comment-id="4"]').getBoundingClientRect().top;
+    expect(childTop()).toBe(420);
+    layoutShift += 170;
+    view.update(tree, projection, true);
+    await vi.waitFor(() => expect(childTop()).toBe(420));
     for (let cycle = 0; cycle < 3; cycle += 1) {
-      viewport.scrollTop = 900 + layoutShift - 420;
-      element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="3"]').click();
-      const childTop = () => element(view.surfaceRoot, '.hnr-comment[data-comment-id="4"]').getBoundingClientRect().top;
-      expect(childTop()).toBe(420);
-      layoutShift += 170;
-      view.update(tree, projection, true);
-      await vi.waitFor(() => expect(childTop()).toBe(420));
       viewport.dispatchEvent(new WheelEvent("wheel"));
-      viewport.scrollTop += 90;
-      element(view.surfaceRoot, '[data-action="collapse-replies"][data-comment-id="3"]').click();
+      viewport.scrollTop = 360;
+      element(view.surfaceRoot, '.hnr-branch-toggle[data-comment-id="3"]').click();
       expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="4"]')).toBeNull();
-      expect(element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="3"]').getBoundingClientRect().top).toBe(420);
+      expect(element(view.surfaceRoot, '.hnr-comment[data-comment-id="3"]').getBoundingClientRect().top).toBe(300);
+      element(view.surfaceRoot, '.hnr-branch-toggle[data-comment-id="3"]').click();
+      expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="4"]')).not.toBeNull();
+      expect(element(view.surfaceRoot, '.hnr-comment[data-comment-id="3"]').getBoundingClientRect().top).toBe(300);
+      expect(projection.replyWindows()).toContainEqual({ id: 3, count: 20 });
     }
-    element(view.surfaceRoot, '[data-action="collapse-replies"][data-comment-id="2"]').click();
-    expect(element(view.surfaceRoot, '[data-action="expand-replies"][data-comment-id="2"]').getBoundingClientRect().top).toBe(360);
+    element(view.surfaceRoot, '.hnr-branch-toggle[data-comment-id="2"]').click();
+    expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="3"]')).toBeNull();
+    element(view.surfaceRoot, '.hnr-branch-toggle[data-comment-id="2"]').click();
+    expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="4"]')).not.toBeNull();
   });
 
   it("saves the selected mode and custom limits while disabled smart fields retain their values", () => {
@@ -292,8 +323,8 @@ it("loads only the opened missing page, reuses pending and cached items, and can
   };
   resolvePending();
   await vi.waitFor(() => expect(root.querySelector(".hnr-coverage")?.textContent).toContain("21 条评论"));
-  element(root, '[data-action="collapse-replies"]').click();
-  element(root, '[data-action="expand-replies"]').click();
+  element(root, '.hnr-branch-toggle[data-comment-id="2"]').click();
+  element(root, '.hnr-branch-toggle[data-comment-id="2"]').click();
   expect(getItem).toHaveBeenCalledTimes(20);
   expect(sessionApi.loadThread).not.toHaveBeenCalled();
   expect(sessionApi.loadCommentSubtrees).not.toHaveBeenCalled();

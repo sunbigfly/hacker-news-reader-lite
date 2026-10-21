@@ -155,6 +155,7 @@ button { color: inherit; }
 .hnr-original-control:is(:hover, :focus-visible) .hnr-tooltip,
 .hnr-close:is(:hover, :focus-visible) .hnr-tooltip,
 .hnr-comment-action:is(:hover, :focus-visible) .hnr-tooltip,
+.hnr-author-marker:is(:hover, :focus-visible) .hnr-tooltip,
 .hnr-branch-toggle:is(:hover, :focus-visible) .hnr-tooltip,
 .hnr-summary-window-close:is(:hover, :focus-visible) .hnr-tooltip,
 .hnr-download-history-action:is(:hover, :focus-visible) .hnr-tooltip { transform: translate(-50%, 0); visibility: visible; opacity: 1; }
@@ -472,9 +473,10 @@ button { color: inherit; }
   --hnr-tree-rail-inset: 39px;
   position: relative;
   min-height: 64px;
-  padding: 10px 14px 8px calc(15px + var(--hnr-display-depth) * var(--hnr-tree-step));
+  padding: 10px 14px 4px calc(15px + var(--hnr-display-depth) * var(--hnr-tree-step));
   background: var(--hnr-paper-raised);
 }
+.hnr-comment[data-collapsed="false"] { padding-top: 6px; }
 .hnr-comment[data-depth="0"] { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--hnr-line); }
 .hnr-comment[data-virtual-index="0"], .hnr-offline-items > .hnr-comment:first-child { border-top: 0; }
 .hnr-comment[data-depth="0"] .hnr-tree-stem { top: 46px; }
@@ -493,14 +495,14 @@ button { color: inherit; }
   top: 0;
   left: calc(var(--hnr-tree-origin) + var(--hnr-parent-display-depth) * var(--hnr-tree-step));
   width: max(0px, calc((var(--hnr-display-depth) - var(--hnr-parent-display-depth)) * var(--hnr-tree-step) - 15px - var(--hnr-tree-avatar-gap)));
-  height: 25px;
+  height: 21px;
   border-bottom: 1px solid var(--hnr-tree-line);
   border-left: 1px solid var(--hnr-tree-line);
   border-bottom-left-radius: 14px;
 }
 .hnr-tree-stem {
   position: absolute;
-  top: 42px;
+  top: 38px;
   bottom: -1px;
   left: calc(var(--hnr-tree-origin) + var(--hnr-display-depth) * var(--hnr-tree-step));
   border-left: 1px solid var(--hnr-tree-line);
@@ -512,8 +514,10 @@ button { color: inherit; }
 .hnr-comment[data-locate-flash="true"] { background: color-mix(in srgb, var(--hnr-accent) 22%, var(--hnr-paper-raised)); box-shadow: inset 4px 0 color-mix(in srgb, var(--hnr-accent) 82%, transparent); animation: hnr-comment-locate-flash 1.4s ease-out; }
 .hnr-comment[data-dead="true"] { opacity: .68; }
 .hnr-comment-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; min-height: 30px; color: var(--hnr-muted); font-size: 12px; }
-.hnr-author-marker { position: relative; display: grid; flex: 0 0 30px; width: 30px; height: 30px; overflow: hidden; place-items: center; border: 1px solid var(--hnr-tree); border-radius: 50%; background: color-mix(in srgb, var(--hnr-tree-soft) 62%, var(--hnr-paper-raised)); color: #3d7255; font-size: 11px; font-weight: 800; }
-.hnr-author-avatar { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.hnr-comment-head:has(.hnr-author-marker:is(:hover, :focus-visible)) { z-index: 6; }
+.hnr-author-marker { position: relative; display: grid; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; place-items: center; border: 1px solid var(--hnr-tree); border-radius: 50%; background: color-mix(in srgb, var(--hnr-tree-soft) 62%, var(--hnr-paper-raised)); color: #3d7255; font-size: 11px; font-weight: 800; cursor: pointer; touch-action: manipulation; }
+.hnr-author-marker:focus-visible { outline: 2px solid var(--hnr-accent); outline-offset: 2px; }
+.hnr-author-avatar { position: absolute; inset: 0; display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 .hnr-author { color: var(--hnr-ink); font-weight: 750; }
 .hnr-permalink { color: var(--hnr-muted); text-decoration: none; }
 .hnr-permalink:hover { color: var(--hnr-accent-dark); text-decoration: underline; }
@@ -557,8 +561,11 @@ button { color: inherit; }
 :host([data-translation-theme="underline"]) .hnr-bilingual-text .hnr-bilingual-translation-section { color: var(--hnr-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--hnr-accent) 58%, transparent); text-decoration-thickness: 1px; text-underline-offset: .18em; }
 :host([data-translation-theme="highlight"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .5em .7em; border-radius: .55em; background: color-mix(in srgb, var(--hnr-accent) 16%, transparent); color: var(--hnr-ink); }
 :host([data-translation-theme="paper"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .65em .8em; border: 1px solid color-mix(in srgb, var(--hnr-line) 78%, transparent); border-radius: .6em; background: color-mix(in srgb, var(--hnr-paper-raised) 94%, var(--hnr-paper)); box-shadow: 0 .18em .55em rgb(15 23 42 / 7%); color: var(--hnr-ink); }
-.hnr-comment-actions { position: relative; z-index: 5; display: flex; gap: 5px; margin: 4px 0 0 var(--hnr-tree-rail-inset, 39px); width: max-content; }
-.hnr-comment-body[hidden], .hnr-comment-actions[hidden] { display: none !important; }
+.hnr-comment-actions { position: relative; z-index: 5; display: flex; align-items: center; gap: 5px; margin: 4px 0 0 var(--hnr-tree-rail-inset, 39px); width: max-content; }
+.hnr-comment-body[hidden], .hnr-comment-actions[hidden], .hnr-comment-body-collapsed[hidden] { display: none !important; }
+.hnr-comment-body-collapsed { display: inline-flex; flex: 0 0 auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--hnr-muted); font-size: 12px; line-height: 1.5; white-space: nowrap; cursor: pointer; }
+.hnr-comment-body-collapsed:hover { color: var(--hnr-accent-dark); }
+.hnr-comment-body-collapsed:focus-visible { outline: 2px solid var(--hnr-accent); outline-offset: 2px; }
 .hnr-comment[data-collapsed="true"] { min-height: 44px; padding-right: 14px; padding-bottom: 8px; padding-left: calc(41px + var(--hnr-display-depth) * var(--hnr-tree-step)); }
 .hnr-comment[data-collapsed="true"] .hnr-comment-head { min-height: 24px; }
 .hnr-comment[data-collapsed="true"] .hnr-author-marker { flex-basis: 24px; width: 24px; height: 24px; font-size: 9px; }
@@ -573,10 +580,9 @@ button { color: inherit; }
 .hnr-missing { min-height: 52px; padding-block: 12px; background: transparent; }
 .hnr-missing-button { border: 0; background: transparent; color: var(--hnr-accent-dark); text-decoration: underline; cursor: pointer; }
 .hnr-replies { min-height: 48px; padding-block: 2px; }
-.hnr-replies-button, .hnr-replies-collapse { position: relative; min-height: 44px; max-width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--hnr-accent-dark); font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer; touch-action: manipulation; }
-.hnr-replies-collapse { min-height: 30px; margin-left: auto; color: var(--hnr-muted); }
-.hnr-replies-button:hover, .hnr-replies-collapse:hover { background: var(--hnr-paper); }
-.hnr-replies-button:focus-visible, .hnr-replies-collapse:focus-visible { outline: 2px solid var(--hnr-accent); outline-offset: -2px; }
+.hnr-replies-button { position: relative; min-height: 44px; max-width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--hnr-accent-dark); font: inherit; font-size: 12px; font-weight: 600; text-align: left; cursor: pointer; touch-action: manipulation; }
+.hnr-replies-button:hover { background: var(--hnr-paper); }
+.hnr-replies-button:focus-visible { outline: 2px solid var(--hnr-accent); outline-offset: -2px; }
 .hnr-replies .hnr-tree-elbow { height: 24px; }
 .hnr-reply-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .hnr-reply-settings > .hnr-settings-description { grid-column: 1 / -1; margin: 0; font-size: 12px; }
@@ -793,7 +799,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
   .hnr-header-actions[data-expanded="true"] .hnr-actions-content { max-width: none; visibility: visible; }
   .hnr-commands { flex: 1 1 auto; flex-wrap: wrap; gap: 4px; }
   .hnr-comment-action, .hnr-new-comments-nav, .hnr-new-comments-close { min-width: 44px; min-height: 44px; }
-  .hnr-replies-collapse { min-height: 44px; }
   .hnr-summary-window-close, .hnr-settings-close, .hnr-download-history-action { min-width: 44px; min-height: 44px; }
   .hnr-comment[data-collapsed="false"] { padding-top: 6px; padding-bottom: 2px; }
   .hnr-comment[data-collapsed="false"] .hnr-tree-elbow { height: 21px; }

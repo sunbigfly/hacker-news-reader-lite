@@ -6,7 +6,7 @@ import { VirtualCommentList } from "../src/stream/virtual-comment-list";
 import { VirtualCommentLayout } from "../src/stream/virtual-comment-layout";
 
 describe("VirtualCommentList", () => {
-  it("keeps measured heights with their comments across repeated nested reply expansion", () => {
+  it("keeps measured heights with their comments and body states across nested reply expansion", () => {
     let resize: ResizeObserverCallback | undefined;
     vi.stubGlobal("ResizeObserver", class {
       constructor(callback: ResizeObserverCallback) { resize = callback; }
@@ -54,6 +54,19 @@ describe("VirtualCommentList", () => {
         borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [],
       }], {} as ResizeObserver);
       expect(layout.offsetFor(4)).toBe(940);
+      const foldedBody: VisibleEntry = {
+        kind: "comment", id: 2 as never, depth: 0,
+        collapsed: false, bodyCollapsed: true, hasChildren: true,
+      };
+      list.setEntries([foldedBody, nested, folded, sibling], [64, 112, 48, 112]);
+      expect(layout.offsetFor(1)).toBe(64);
+      measure([64, 240, 48, 800]);
+      for (let cycle = 0; cycle < 2; cycle += 1) {
+        list.setEntries([parent, nested, folded, sibling]);
+        expect(layout.offsetFor(1)).toBe(400);
+        list.setEntries([foldedBody, nested, folded, sibling]);
+        expect(layout.offsetFor(1)).toBe(64);
+      }
     } finally {
       list.destroy();
       vi.unstubAllGlobals();

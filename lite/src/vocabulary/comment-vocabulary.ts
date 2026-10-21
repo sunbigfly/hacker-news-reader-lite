@@ -31,6 +31,7 @@ function element<K extends keyof HTMLElementTagNameMap>(
  * controller decides when to create it, what to put in it and when to drop it.
  */
 export class VocabularySection {
+  readonly #wordCardBindings: (() => void)[] = [];
   readonly #options: VocabularySectionOptions;
   readonly #status: HTMLParagraphElement;
   readonly #list: HTMLDivElement;
@@ -73,6 +74,7 @@ export class VocabularySection {
   }
 
   setError(message: string): void {
+    this.#clearWordCards();
     this.#words = Object.freeze([]);
     this.root.dataset.vocabularyState = "error";
     this.root.hidden = false;
@@ -85,6 +87,7 @@ export class VocabularySection {
 
   /** An empty answer hides the whole section, so untouched comments keep their exact height. */
   setWords(words: readonly VocabularyWord[]): void {
+    this.#clearWordCards();
     this.#words = words;
     this.#list.replaceChildren();
     this.#status.textContent = "";
@@ -100,6 +103,7 @@ export class VocabularySection {
   }
 
   destroy(): void {
+    this.#clearWordCards();
     this.root.replaceChildren();
     this.root.hidden = true;
     this.#words = Object.freeze([]);
@@ -116,7 +120,7 @@ export class VocabularySection {
       const open = this.#options.openWordPopup;
       label.tabIndex = 0;
       // Same dwell and grace as a marked word in the comment, so the card behaves the same everywhere.
-      bindWordCard(label, (hooks) => open(label, word, hooks));
+      this.#wordCardBindings.push(bindWordCard(label, (hooks) => open(label, word, hooks)));
     }
     const save = bookmarkButton(document, word);
     save.addEventListener("click", (event) => {
@@ -142,6 +146,10 @@ export class VocabularySection {
     } catch (error) {
       this.#status.textContent = error instanceof Error ? error.message : "收藏失败，请重试";
     }
+  }
+
+  #clearWordCards(): void {
+    for (const dispose of this.#wordCardBindings.splice(0)) dispose();
   }
 
   #setExpanded(expanded: boolean): void {

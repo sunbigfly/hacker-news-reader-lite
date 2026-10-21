@@ -16,7 +16,7 @@ export interface VirtualCommentPosition {
 }
 
 function heightIdentity(entry: VisibleEntry): string {
-  const state = entry.kind === "comment" ? `${entry.collapsed}:${entry.repliesExpanded ?? ""}` : "";
+  const state = entry.kind === "comment" ? `${entry.collapsed}:${entry.bodyCollapsed ?? entry.collapsed}:${entry.repliesExpanded ?? ""}` : "";
   return `${entry.kind}:${entry.id}:${entry.depth}:${state}`;
 }
 

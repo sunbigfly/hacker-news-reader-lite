@@ -12,6 +12,7 @@ export type VisibleCommentEntry = {
   readonly id: CommentId;
   readonly depth: number;
   readonly collapsed: boolean;
+  readonly bodyCollapsed?: boolean;
   readonly hasChildren: boolean;
   readonly repliesExpanded?: boolean;
 };
@@ -38,6 +39,7 @@ export type VisibleEntry = VisibleCommentEntry | MissingCommentEntry | MoreRepli
 
 export class CommentProjection {
   readonly #collapsed = new Set<CommentId>();
+  readonly #collapsedBodies = new Set<CommentId>();
   readonly #replyWindows = new Map<CommentId, number>();
   #settings: ReplyDisplaySettings;
 
@@ -102,9 +104,17 @@ export class CommentProjection {
   }
 
   toggle(id: CommentId): boolean {
-    if (this.#collapsed.delete(id)) return false;
+    if (this.#collapsed.delete(id)) {
+      this.#collapsedBodies.delete(id);
+      return false;
+    }
     this.#collapsed.add(id);
+    this.#collapsedBodies.add(id);
     return true;
+  }
+
+  toggleBody(id: CommentId): void {
+    if (!this.#collapsedBodies.delete(id)) this.#collapsedBodies.add(id);
   }
 
   collapsedIds(): readonly CommentId[] {
@@ -113,7 +123,11 @@ export class CommentProjection {
 
   restoreCollapsed(ids: readonly CommentId[]): void {
     this.#collapsed.clear();
-    for (const id of ids) this.#collapsed.add(id);
+    this.#collapsedBodies.clear();
+    for (const id of ids) {
+      this.#collapsed.add(id);
+      this.#collapsedBodies.add(id);
+    }
   }
 
   reveal(id: CommentId): void {
@@ -121,6 +135,7 @@ export class CommentProjection {
     const counts = this.#replyCounts();
     for (const [index, ancestor] of path.entries()) {
       this.#collapsed.delete(ancestor);
+      this.#collapsedBodies.delete(ancestor);
       const child = path[index + 1];
       if (child === undefined) continue;
       const childIndex = this.tree.get(ancestor)?.childIds.indexOf(child) ?? -1;
@@ -151,6 +166,7 @@ export class CommentProjection {
         id,
         depth,
         collapsed,
+        bodyCollapsed: this.#collapsedBodies.has(id),
         hasChildren: comment.childIds.length > 0,
         repliesExpanded: !collapsed && limit > 0 && comment.childIds.length > 0,
       });

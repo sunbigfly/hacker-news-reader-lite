@@ -617,6 +617,25 @@ describe("TranslationService", () => {
     tasks.destroy();
   });
 
+  it.each([DEFAULT_SETTINGS.ai.prompt, "", "保留英文技术缩写。"])("always sends the built-in translation requirements with an optional custom prompt (%s)", async (prompt) => {
+    const http = new TranslationHttp();
+    const tasks = new TranslationTaskManager();
+    const service = new TranslationService(document, http, tasks, new CacheRepository(new MemoryCacheStore()), new AiCompletionClient(http));
+    const settings = { ...DEFAULT_SETTINGS, translationProvider: "ai" as const, ai: { ...DEFAULT_SETTINGS.ai, apiKey: "test-key", prompt } };
+    try {
+      await service.translateMany([{ id: 1, html: "This technical discussion should retain its original tone and formatting." }], settings, new AbortController().signal);
+      const request = JSON.parse(http.bodies[0] ?? "{}") as { readonly input?: readonly { readonly role?: string; readonly content?: string }[] };
+      const system = request.input?.find((message) => message.role === "system")?.content ?? "";
+      expect(system.split(DEFAULT_SETTINGS.ai.prompt)).toHaveLength(2);
+      expect(system).toContain("外层响应遵循以下批量输出协议");
+      expect(system).toContain("只输出 JSON 对象");
+      if (prompt && prompt !== DEFAULT_SETTINGS.ai.prompt) expect(system).toContain(`附加翻译要求：${prompt}`);
+      else expect(system).not.toContain("附加翻译要求：");
+    } finally {
+      tasks.destroy();
+    }
+  });
+
   it("gives AI adjacent context without requiring context boundary tokens in its translations", async () => {
     const http = new TranslationHttp();
     const tasks = new TranslationTaskManager();

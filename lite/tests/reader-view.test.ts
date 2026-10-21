@@ -179,7 +179,7 @@ describe("ReaderView", () => {
 
   it("aligns a reply elbow with the vertical center of its avatar", () => {
     const css = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
-    expect(css).toMatch(/\.hnr-tree-elbow\s*\{[^}]*height: 25px;/s);
+    expect(css).toMatch(/\.hnr-tree-elbow\s*\{[^}]*height: 21px;/s);
     expect(css).toMatch(/\.hnr-comment\[data-collapsed="true"\] \.hnr-tree-elbow\s*\{ height: 22px; \}/);
   });
 
@@ -546,7 +546,7 @@ describe("ReaderView", () => {
       expect(originalControl?.hasAttribute("title")).toBe(false);
       expect(new URL(originalControl?.href ?? "").searchParams.get("hnr_native")).toBe("1");
       const commentActions = [...view.surfaceRoot.querySelectorAll<HTMLElement>('[data-comment-id="101"] .hnr-comment-action')];
-      expect(commentActions).toHaveLength(5);
+      expect(commentActions).toHaveLength(6);
       expect(commentActions[0]?.getAttribute("aria-label")).toBe("收起此分支");
       expect(commentActions.every((action) => {
         const tooltip = action.querySelector<HTMLElement>(".hnr-tooltip");
@@ -637,6 +637,67 @@ describe("ReaderView", () => {
     }
   });
 
+  it("synchronizes avatar and toolbar body toggles without collapsing descendants or sibling bodies", () => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const projection = new CommentProjection(tree, { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" });
+    const onToggleComment = vi.fn();
+    const onReplyAction = vi.fn();
+    const view = new ReaderView(document, tree, projection, true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(),
+      onToggleComment, onReplyAction, onLoadMissing: vi.fn(),
+    }, scope, "", document.body);
+    const element = (id: number, selector: string): HTMLElement => {
+      const found = view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"] ${selector}`);
+      if (!found) throw new Error(`Missing comment ${id} control ${selector}`);
+      return found;
+    };
+    try {
+      const avatar = element(102, ".hnr-author-marker");
+      expect(avatar.tagName).toBe("BUTTON");
+      expect(avatar.hasAttribute("title")).toBe(false);
+      expect(avatar.querySelector('[role="tooltip"]')?.textContent).toBe("收起此条评论正文");
+      expect(avatar.getAttribute("aria-describedby")).toBe(avatar.querySelector('[role="tooltip"]')?.id);
+      expect(avatar.getAttribute("aria-controls")).toBe(element(102, ".hnr-comment-body").id);
+      expect(element(102, ".hnr-comment-body-toggle").previousElementSibling?.getAttribute("data-comment-action")).toBe("reply");
+      expect(view.surfaceRoot.querySelector('[data-action="collapse-replies"]')).toBeNull();
+      avatar.click();
+
+      expect(element(102, ".hnr-comment-body").hidden).toBe(true);
+      expect(element(102, ".hnr-comment-body-collapsed").hidden).toBe(false);
+      expect(element(102, ".hnr-comment-body-collapsed").textContent).toBe("正文已收起 · 展开");
+      expect(element(102, ".hnr-comment-actions").hidden).toBe(false);
+      for (const id of [101, 103, 104]) expect(element(id, ".hnr-comment-body").hidden).toBe(false);
+      expect(element(102, ".hnr-author-marker").getAttribute("aria-expanded")).toBe("false");
+      expect(element(102, ".hnr-author-marker .hnr-tooltip").textContent).toBe("展开此条评论正文");
+      expect(element(102, ".hnr-comment-body-toggle").getAttribute("aria-label")).toBe("展开此条评论正文");
+      expect(view.surfaceRoot.activeElement).toBe(element(102, ".hnr-author-marker"));
+      view.update(tree, projection, true);
+      expect(element(102, ".hnr-comment-body").hidden).toBe(true);
+      element(102, ".hnr-comment-body-toggle").click();
+      expect(element(102, ".hnr-comment-body").hidden).toBe(false);
+      expect(element(102, ".hnr-comment-body-collapsed").hidden).toBe(true);
+      expect(element(102, ".hnr-author-marker").getAttribute("aria-expanded")).toBe("true");
+      expect(element(102, ".hnr-comment-body-toggle").getAttribute("aria-label")).toBe("收起此条评论正文");
+      expect(view.surfaceRoot.activeElement).toBe(element(102, ".hnr-comment-body-toggle"));
+
+      element(103, ".hnr-comment-body-toggle").click();
+      expect(element(103, ".hnr-comment-body").hidden).toBe(true);
+      expect(element(102, ".hnr-comment-body").hidden).toBe(false);
+      element(103, ".hnr-comment-body-collapsed").click();
+      expect(element(103, ".hnr-comment-body").hidden).toBe(false);
+      element(101, ".hnr-author-marker").click();
+      expect(element(101, ".hnr-comment-body").hidden).toBe(true);
+      for (const id of [102, 103, 104]) expect(element(id, ".hnr-comment-body").hidden).toBe(false);
+      expect(onToggleComment).not.toHaveBeenCalled();
+      expect(onReplyAction).not.toHaveBeenCalled();
+    } finally {
+      scope.destroy();
+    }
+  });
+
   it("collapses the owning branch when its vertical reply line is clicked", () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document);
@@ -667,6 +728,68 @@ describe("ReaderView", () => {
     expect(view.surfaceRoot.querySelector('[data-comment-id="102"]')).toBeNull();
     expect(view.surfaceRoot.querySelector<HTMLElement>('[data-comment-id="101"]')?.dataset.collapsed).toBe("true");
     scope.destroy();
+  });
+
+  it.each([".hnr-author-marker", ".hnr-comment-body-toggle", ".hnr-branch-toggle"])("anchors collapse and expansion of a long comment through %s", async (control) => {
+    document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
+    const snapshot = parseHnDocument(document);
+    const scope = new LifecycleScope();
+    const tree = new CommentTree(snapshot.story, snapshot.comments);
+    const projection = new CommentProjection(tree, { ...DEFAULT_SETTINGS, commentDisplayMode: "expanded" });
+    const view = new ReaderView(document, tree, projection, true, {
+      onClose: vi.fn(), onCommand: vi.fn(), onCommentAction: vi.fn(), onViewportCommentsChanged: vi.fn(), onLoadMissing: vi.fn(),
+      onToggleComment: (id) => {
+        projection.toggle(id);
+        view.update(tree, projection, true);
+      },
+    }, scope, "", document.body);
+    const viewport = view.surfaceRoot.querySelector<HTMLElement>(".hnr-comments");
+    if (!viewport) throw new Error("Missing comment viewport");
+    const element = (selector = ""): HTMLElement => {
+      const found = view.surfaceRoot.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="101"]${selector ? ` ${selector}` : ""}`);
+      if (!found) throw new Error(`Missing comment control ${selector}`);
+      return found;
+    };
+    const rect = (top: number, height: number): DOMRect => ({
+      x: 0, y: top, top, right: 800, bottom: top + height, left: 0,
+      width: 800, height, toJSON: () => ({}),
+    });
+    let layoutOffset = 300;
+    viewport.scrollTop = 2000;
+    const geometry = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this === viewport) return rect(100, 400);
+      if (this.classList.contains("hnr-comment") && this.dataset.commentId === "101") {
+        return rect(layoutOffset - viewport.scrollTop, this.dataset.bodyCollapsed === "true" ? 100 : 2200);
+      }
+      return rect(0, 0);
+    });
+    try {
+      expect(element().getBoundingClientRect().top).toBe(-1700);
+      element(control).click();
+      expect(element().dataset.bodyCollapsed).toBe("true");
+      expect(element().getBoundingClientRect().top).toBe(115);
+      expect(Boolean(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="102"]'))).toBe(control !== ".hnr-branch-toggle");
+
+      layoutOffset += 68;
+      view.setTranslation(104 as never, "译文更新");
+      await vi.waitFor(() => expect(element().getBoundingClientRect().top).toBe(115));
+
+      viewport.dispatchEvent(new WheelEvent("wheel"));
+      viewport.scrollTop = layoutOffset - 40;
+      const expandControl = control === ".hnr-branch-toggle" ? control : ".hnr-comment-body-collapsed";
+      element(expandControl).click();
+      expect(element().dataset.bodyCollapsed).toBe("false");
+      expect(element().getBoundingClientRect().top).toBe(115);
+      expect(view.surfaceRoot.querySelector('.hnr-comment[data-comment-id="102"]')).not.toBeNull();
+
+      viewport.dispatchEvent(new WheelEvent("wheel"));
+      viewport.scrollTop = layoutOffset - 220;
+      element(control).click();
+      expect(element().getBoundingClientRect().top).toBe(220);
+    } finally {
+      geometry.mockRestore();
+      scope.destroy();
+    }
   });
 
   it("keeps the collapsed parent anchored when its branch height disappears", () => {
@@ -1278,7 +1401,23 @@ describe("ReaderView", () => {
     popup()?.dispatchEvent(new PointerEvent("pointerleave"));
     await new Promise((resolve) => setTimeout(resolve, 260));
     expect(popup()).toBeNull();
+
+    mark.dispatchEvent(new FocusEvent("focus"));
+    expect(popup()).not.toBeNull();
+    view.refreshVocabulary();
+    expect(popup()).toBeNull();
+    const nextMark = view.surfaceRoot.querySelector<HTMLElement>("mark[data-vocabulary-ink]");
+    if (!nextMark) throw new Error("no replacement word to hover");
+    expect(nextMark).not.toBe(mark);
+    nextMark.dispatchEvent(new FocusEvent("focus"));
+    expect(popup()).not.toBeNull();
+    const viewport = view.surfaceRoot.querySelector<HTMLElement>(".hnr-comments");
+    viewport?.dispatchEvent(new Event("scroll", { bubbles: false, composed: false }));
+    expect(popup()).toBeNull();
+    nextMark.dispatchEvent(new FocusEvent("focus"));
+    expect(popup()).not.toBeNull();
     scope.destroy();
+    expect(popup()).toBeNull();
   });
 
   it("opens a marked word card from a compact touch viewport without activating its parent", () => {

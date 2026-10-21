@@ -2,7 +2,7 @@ import type { CacheRepository } from "../cache/cache-repository";
 import { hashText } from "../kernel/hash";
 import { RequestError, type HttpClient, type RequestDescriptor } from "../network/request-contract";
 import type { AiCompletionClient } from "../ai/ai-completion-client";
-import type { ReaderSettings } from "../settings/settings-store";
+import { DEFAULT_SETTINGS, type ReaderSettings } from "../settings/settings-store";
 import { sanitizeHtml } from "../security/sanitize-html";
 import {
   renderBilingualSections,
@@ -110,6 +110,13 @@ const PROTECTED_TOKEN_IGNORABLE_PATTERN = /[\p{Cf}\p{White_Space}]/gu;
  * string, so the words must come after every section in the answer.
  */
 const VOCABULARY_ANSWER_ORDER = "先输出全部 section_* 键，最后再输出 words 键。";
+
+function aiTranslationPrompt(additionalPrompt: string): string {
+  const additional = additionalPrompt.trim();
+  return additional && additional !== DEFAULT_SETTINGS.ai.prompt
+    ? `${DEFAULT_SETTINGS.ai.prompt}\n\n附加翻译要求：${additional}`
+    : DEFAULT_SETTINGS.ai.prompt;
+}
 
 function normalizeProtectedTokenFormatting(value: string): string {
   return value.replace(FORMATTED_PROTECTED_TOKEN_PATTERN, (token, body: string) => {
@@ -567,7 +574,7 @@ export class TranslationService {
       .map((plan) => ({ index: plan.index, requestSource: withSectionContext(sources, plan.index) }));
     if (sections.length === 0) return null;
     const fingerprint = await translationTextFingerprint(sections.map((section) => section.requestSource), this.digest);
-    const aiIdentity = settings.translationProvider === "ai" ? `${settings.ai.baseUrl}|${settings.ai.model}|${settings.ai.prompt}` : "public";
+    const aiIdentity = settings.translationProvider === "ai" ? `${settings.ai.baseUrl}|${settings.ai.model}|${aiTranslationPrompt(settings.ai.prompt)}` : "public";
     return {
       input,
       wrapper,
@@ -641,7 +648,7 @@ export class TranslationService {
         ? `${VOCABULARY_ANSWER_ORDER}${vocabulary.instruction}`
         : "";
       const raw = await this.ai.complete(settings.ai, requestIdentity, [
-        { role: "system", content: `你是严格的翻译器。输入是带 id 的 JSON 对象数组；只翻译每项 text，before/after 仅用于理解相邻上下文，不得写入结果。每项 text 都是独立、完整的边界；不得把其他项的续句或相似段落补入译文。输出一个 JSON 对象，以每项 id 为键、对应简体中文译文为值；原样保留 text 中全部 ⟦数字⟧ 占位符，不得遗漏、合并或增加 id。只输出 JSON 对象。${settings.ai.prompt}${instruction}` },
+        { role: "system", content: `${aiTranslationPrompt(settings.ai.prompt)}\n\n以上要求用于每项译文内容，外层响应遵循以下批量输出协议：输入是带 id 的 JSON 对象数组；只翻译每项 text，before/after 仅用于理解相邻上下文，不得写入结果。每项 text 都是独立、完整的边界；不得把其他项的续句或相似段落补入译文。输出一个 JSON 对象，以每项 id 为键、对应简体中文译文为值；原样保留 text 中全部 ⟦数字⟧ 占位符，不得遗漏、合并或增加 id。只输出 JSON 对象。${instruction}` },
         { role: "user", content: JSON.stringify(payload) },
       ], signal, (content) => onPartial?.(streamedJsonRecord(content)));
       const record = parseAiRecord(raw);

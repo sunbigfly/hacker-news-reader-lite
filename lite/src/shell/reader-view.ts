@@ -57,7 +57,7 @@ const NEW_COMMENT_HIGHLIGHT_MS = 5_000;
 const LOCATED_COMMENT_PIN_MS = 4_000;
 const LOCATED_COMMENT_SETTLE_MS = 1_500;
 const LOCATED_COMMENT_FLASH_MS = 1_500;
-const COLLAPSED_COMMENT_VIEWPORT_INSET_PX = 15;
+const COMMENT_TOGGLE_VIEWPORT_INSET_PX = 15;
 
 // Minimal Lucide icon geometry (ISC); kept inline so the userscript does not ship an icon runtime.
 const COMMAND_DEFINITIONS: ReadonlyArray<readonly [ReaderCommand, string, readonly string[]]> = [
@@ -228,7 +228,6 @@ export class ReaderView {
   #locateFocusGeneration = 0;
   #commentAnchorFrame: number | null = null;
   #commentAnchorGeneration = 0;
-  readonly #replyExpansionAnchors = new Map<CommentId, { firstId: CommentId; insetPx: number }>();
   #locatedCommentPinId: CommentId | null = null;
   #locatedCommentPinInsetPx = 0;
   #locatedCommentPinFrame: number | null = null;
@@ -541,7 +540,7 @@ export class ReaderView {
       if (this.#commentAnchorFrame !== null) this.document.defaultView?.cancelAnimationFrame(this.#commentAnchorFrame);
       this.#commentAnchorFrame = null;
       this.#releaseLocatedCommentPin();
-      this.#replyExpansionAnchors.clear();
+      this.clearVocabulary();
       this.#clearLocatedCommentFlash();
       this.#removeSummarySurface(false);
     });
@@ -795,6 +794,7 @@ export class ReaderView {
   #mountVocabulary(id: CommentId, host: HTMLElement, body: HTMLElement): void {
     const actions = this.#vocabularyActions;
     if (!actions) return;
+    this.#dropVocabulary(id);
     const sourceUrl = this.#vocabularySourceUrl(id);
     const section = new VocabularySection(host, {
       sourceUrl,
@@ -879,10 +879,10 @@ export class ReaderView {
     this.#inkVocabulary(mount, binding.words);
   }
 
-  #bindVocabularyMark(mark: HTMLElement, word: VocabularyWord, sourceUrl: string): void {
+  #bindVocabularyMark(mark: HTMLElement, word: VocabularyWord, sourceUrl: string): (() => void) | undefined {
     if (!this.#supportsWordPopup()) return;
     mark.tabIndex = 0;
-    bindWordCard(mark, (hooks) => showWordPopup({
+    return bindWordCard(mark, (hooks) => showWordPopup({
       container: this.#commentViewport,
       anchor: mark,
       word,
@@ -2514,6 +2514,8 @@ export class ReaderView {
     row.dataset.depth = String(entry.depth);
     row.dataset.hasChildren = String(entry.hasChildren);
     row.dataset.collapsed = String(entry.collapsed);
+    const bodyCollapsed = entry.bodyCollapsed ?? entry.collapsed;
+    row.dataset.bodyCollapsed = String(bodyCollapsed);
     if (this.#newCommentHighlightIds.has(entry.id)) row.dataset.newComment = "true";
     if (!comment) return row;
 
@@ -2549,15 +2551,25 @@ export class ReaderView {
 
     const head = htmlElement(this.document, "div", "hnr-comment-head");
     let branchToggle: HTMLButtonElement | null = null;
+    const bodyToggleLabel = bodyCollapsed ? "展开此条评论正文" : "收起此条评论正文";
+    const bodyId = `hnr-comment-body-${comment.id}`;
     const authorMarker = htmlElement(
       this.document,
-      "span",
+      "button",
       "hnr-author-marker",
       (comment.author ?? "?").slice(0, 1).toLocaleUpperCase(),
     );
-    authorMarker.setAttribute("aria-hidden", "true");
+    authorMarker.type = "button";
+    authorMarker.dataset.action = "toggle-comment-body";
+    authorMarker.dataset.commentId = String(comment.id);
+    authorMarker.setAttribute("aria-label", bodyToggleLabel);
+    authorMarker.setAttribute("aria-expanded", String(!bodyCollapsed));
+    authorMarker.setAttribute("aria-controls", bodyId);
+    const authorTooltip = tooltipElement(this.document, bodyToggleLabel, `hnr-tooltip-author-${comment.id}`);
+    authorMarker.setAttribute("aria-describedby", authorTooltip.id);
     const authorAvatar = createAuthorAvatarElement(this.document, comment.author);
     if (authorAvatar) authorMarker.append(authorAvatar);
+    authorMarker.append(authorTooltip);
     const author = htmlElement(this.document, "strong", "hnr-author", comment.author ?? (comment.deleted ? "[deleted]" : "unknown"));
     const idLink = htmlElement(this.document, "a", "hnr-permalink", `#${comment.id}`);
     idLink.href = `https://news.ycombinator.com/item?id=${comment.id}`;
@@ -2582,6 +2594,7 @@ export class ReaderView {
       });
     }
     const body = htmlElement(this.document, "div", "hnr-comment-body");
+    body.id = bodyId;
     const original = htmlElement(this.document, "div", "hnr-original-text");
     const safeHtml = this.#preheated.get(comment.id)?.sanitizedHtml
       ?? sanitizeHtml(comment.html, this.document, this.document.baseURI);
@@ -2599,7 +2612,15 @@ export class ReaderView {
     vocabulary.hidden = true;
     body.append(original, translated, bilingual, vocabulary);
     this.#mountVocabulary(entry.id, vocabulary, body);
-    body.hidden = entry.collapsed;
+    body.hidden = bodyCollapsed;
+    const bodyNotice = htmlElement(this.document, "button", "hnr-comment-body-collapsed", "正文已收起 · 展开");
+    bodyNotice.type = "button";
+    bodyNotice.dataset.action = "toggle-comment-body";
+    bodyNotice.dataset.commentId = String(comment.id);
+    bodyNotice.setAttribute("aria-controls", bodyId);
+    bodyNotice.setAttribute("aria-expanded", "false");
+    bodyNotice.hidden = !bodyCollapsed || entry.collapsed;
+    head.append(bodyNotice);
     const commentActions = htmlElement(this.document, "div", "hnr-comment-actions");
     commentActions.setAttribute("aria-label", `评论 #${comment.id} 操作`);
     if (entry.hasChildren) {
@@ -2634,14 +2655,21 @@ export class ReaderView {
       button.append(iconElement(this.document, paths), tooltip);
       commentActions.append(button);
     }
-    commentActions.hidden = entry.collapsed;
-    if (entry.repliesExpanded) {
-      const collapseReplies = htmlElement(this.document, "button", "hnr-replies-collapse", "收起回复");
-      collapseReplies.type = "button";
-      collapseReplies.dataset.action = "collapse-replies";
-      collapseReplies.dataset.commentId = String(comment.id);
-      commentActions.append(collapseReplies);
-    }
+    const bodyToggle = htmlElement(this.document, "button", "hnr-comment-action hnr-comment-body-toggle");
+    bodyToggle.type = "button";
+    bodyToggle.dataset.action = "toggle-comment-body";
+    bodyToggle.dataset.commentId = String(comment.id);
+    bodyToggle.setAttribute("aria-label", bodyToggleLabel);
+    bodyToggle.setAttribute("aria-expanded", String(!bodyCollapsed));
+    bodyToggle.setAttribute("aria-controls", bodyId);
+    const bodyToggleTooltip = tooltipElement(this.document, bodyToggleLabel, `hnr-tooltip-body-${comment.id}`);
+    bodyToggle.setAttribute("aria-describedby", bodyToggleTooltip.id);
+    bodyToggle.append(
+      iconElement(this.document, [bodyCollapsed ? "m6 9 6 6 6-6" : "m6 15 6-6 6 6"]),
+      bodyToggleTooltip,
+    );
+    commentActions.append(bodyToggle);
+    commentActions.hidden = entry.collapsed && bodyCollapsed;
     row.append(rails, head, body, commentActions);
     if (branchToggle) row.append(branchToggle);
     if (comment.dead) row.dataset.dead = "true";
@@ -2701,33 +2729,25 @@ export class ReaderView {
     if (action === "toggle-comment" && actionElement.dataset.commentId) {
       this.#toggleCommentStable(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId);
     }
+    if (action === "toggle-comment-body" && actionElement.dataset.commentId) {
+      const id = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
+      this.#toggleCommentStable(id, () => {
+        this.#projection.toggleBody(id);
+        this.#visibleEntries = this.#projection.entries();
+        this.#virtualList.setEntries(this.#visibleEntries);
+      });
+      const control = actionElement.classList.contains("hnr-author-marker") ? ".hnr-author-marker" : ".hnr-comment-body-toggle";
+      this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"] ${control}`)?.focus({ preventScroll: true });
+    }
     if (action === "load-missing" && actionElement.dataset.commentId) {
       this.actions.onLoadMissing(Number.parseInt(actionElement.dataset.commentId, 10) as CommentId);
     }
     if (action === "expand-replies" && actionElement.dataset.commentId) {
       const parentId = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
       const firstId = Number.parseInt(actionElement.dataset.firstReplyId ?? "", 10) as CommentId;
-      const anchorTop = actionElement.getBoundingClientRect().top;
-      if (!this.#replyExpansionAnchors.has(parentId)) {
-        this.#replyExpansionAnchors.set(parentId, {
-          firstId, insetPx: anchorTop - this.#commentViewport.getBoundingClientRect().top,
-        });
-      }
+      const anchorTop = this.#toggleAnchorTop(actionElement.getBoundingClientRect());
       this.#keepCommentAnchor(firstId, anchorTop, () => this.actions.onReplyAction?.(parentId, "expand"));
       this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${firstId}"]`)?.focus({ preventScroll: true });
-    }
-    if (action === "collapse-replies" && actionElement.dataset.commentId) {
-      const id = Number.parseInt(actionElement.dataset.commentId, 10) as CommentId;
-      const saved = this.#replyExpansionAnchors.get(id);
-      if (saved) {
-        this.#replyExpansionAnchors.delete(id);
-        this.#keepCommentAnchor(saved.firstId, this.#commentViewport.getBoundingClientRect().top + saved.insetPx,
-          () => this.actions.onReplyAction?.(id, "collapse"));
-        this.#shadow.querySelector<HTMLElement>(`.hnr-replies-button[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
-      } else {
-        this.#toggleCommentStable(id, () => this.actions.onReplyAction?.(id, "collapse"));
-        this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.focus({ preventScroll: true });
-      }
     }
   }
 
@@ -2893,20 +2913,18 @@ export class ReaderView {
     event.preventDefault();
   }
 
-  #toggleCommentStable(id: CommentId, changeReplies?: () => void): void {
-    const selector = `.hnr-comment[data-comment-id="${id}"]`;
-    const before = this.#shadow.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+  #toggleAnchorTop(before?: DOMRect): number {
     const viewport = this.#commentViewport.getBoundingClientRect();
     const visibleHead = Math.min(44, Math.max(1, before?.height ?? 1));
     const latestVisibleTop = Math.max(viewport.top, viewport.bottom - visibleHead);
-    const wasCollapsed = this.#projection.isCollapsed(id);
-    const collapsedAnchorTop = Math.min(viewport.top + COLLAPSED_COMMENT_VIEWPORT_INSET_PX, latestVisibleTop);
-    const anchorTop = wasCollapsed
-      ? before?.top
-      : before && before.top >= viewport.top && before.top <= latestVisibleTop
-        ? before.top
-        : collapsedAnchorTop;
-    this.#keepCommentAnchor(id, anchorTop, changeReplies ?? (() => this.actions.onToggleComment(id)));
+    return before && before.top >= viewport.top && before.top <= latestVisibleTop
+      ? before.top
+      : Math.min(viewport.top + COMMENT_TOGGLE_VIEWPORT_INSET_PX, latestVisibleTop);
+  }
+
+  #toggleCommentStable(id: CommentId, change?: () => void): void {
+    const before = this.#shadow.querySelector<HTMLElement>(`.hnr-comment[data-comment-id="${id}"]`)?.getBoundingClientRect();
+    this.#keepCommentAnchor(id, this.#toggleAnchorTop(before), change ?? (() => this.actions.onToggleComment(id)));
   }
 
   #keepCommentAnchor(id: CommentId, anchorTop: number | undefined, change: () => void): void {

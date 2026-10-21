@@ -50,6 +50,43 @@ describe("word card hover", () => {
     }
   });
 
+  it("does not open a card for a word removed during the hover delay", () => {
+    vi.useFakeTimers();
+    try {
+      const anchor = document.createElement("mark");
+      document.body.append(anchor);
+      const open = vi.fn(() => () => {});
+      bindWordCard(anchor, open);
+      anchor.dispatchEvent(new PointerEvent("pointerenter"));
+      anchor.remove();
+      vi.advanceTimersByTime(WORD_CARD_OPEN_DELAY_MS);
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disposes the pending hover and the open card when its word is recycled", () => {
+    vi.useFakeTimers();
+    try {
+      const anchor = document.createElement("mark");
+      document.body.append(anchor);
+      const close = vi.fn();
+      const open = vi.fn(() => close);
+      const dispose = bindWordCard(anchor, open);
+      anchor.dispatchEvent(new FocusEvent("focus"));
+      expect(open).toHaveBeenCalledTimes(1);
+      dispose();
+      expect(close).toHaveBeenCalledTimes(1);
+      anchor.dispatchEvent(new PointerEvent("pointerenter"));
+      vi.advanceTimersByTime(WORD_CARD_OPEN_DELAY_MS);
+      expect(open).toHaveBeenCalledTimes(1);
+      anchor.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the card while the pointer travels into it, and closes once it leaves both", () => {
     vi.useFakeTimers();
     try {
@@ -147,6 +184,7 @@ describe("word card hover", () => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   // Property-level stubs from one case must not leak into the next.
   Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
   Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
@@ -188,12 +226,15 @@ function rect(element: Element, geometry: Rect): void {
 
 function open(options: {
   readonly containingBlock: boolean;
+  readonly shadow?: boolean;
   readonly anchor: Rect;
   readonly viewport?: Rect;
   readonly onPointerEnter?: () => void;
   readonly onPointerLeave?: () => void;
 }): {
   readonly host: HTMLElement;
+  readonly anchor: HTMLElement;
+  readonly container: HTMLElement;
   readonly close: () => void;
 } {
   document.body.innerHTML = "";
@@ -208,7 +249,8 @@ function open(options: {
   const anchor = document.createElement("mark");
   anchor.textContent = "accommodate";
   viewportHost.append(anchor);
-  root.append(viewportHost);
+  if (options.shadow) root.attachShadow({ mode: "open" }).append(viewportHost);
+  else root.append(viewportHost);
   document.body.append(root);
   if (options.containingBlock) {
     // Mirrors the Reader workspace, which sets contain: layout paint style on the reader root.
@@ -226,10 +268,57 @@ function open(options: {
   });
   const host = viewportHost.querySelector<HTMLElement>(".hnr-word-popup");
   if (!host) throw new Error("popup was not mounted");
-  return { host, close };
+  return { host, anchor, container: viewportHost, close };
 }
 
 describe("word popup placement", () => {
+  it("uses the containing block across the Reader shadow root", () => {
+    const { host, close } = open({ containingBlock: true, shadow: true, anchor: { left: 900, top: 300, width: 90, height: 20 } });
+    expect(Number.parseFloat(host.style.left)).toBe(200);
+    expect(Number.parseFloat(host.style.top)).toBe(326);
+    close();
+  });
+
+  it("uses the nearest transformed containing block instead of a positioned outer wrapper", () => {
+    const { host, anchor, container, close } = open({ containingBlock: true, anchor: { left: 1000, top: 200, width: 90, height: 20 } });
+    close();
+    container.style.transform = "translateX(0)";
+    rect(container, { left: 800, top: 40, width: 600, height: 900 });
+    const dispose = showWordPopup({ container, anchor, word: word(), sourceUrl: "https://news.ycombinator.com/item?id=1" });
+    const next = container.querySelector<HTMLElement>(".hnr-word-popup");
+    expect(next).not.toBe(host);
+    expect(Number.parseFloat(next?.style.left ?? "")).toBe(200);
+    expect(Number.parseFloat(next?.style.top ?? "")).toBe(186);
+    dispose();
+  });
+
+  it("dismisses a stale anchor during a resize instead of moving the card to the origin", () => {
+    let resized: ResizeObserverCallback | undefined;
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resized = callback; }
+      observe(): void {}
+      disconnect = disconnect;
+    });
+    const { host, anchor, close } = open({ containingBlock: true, anchor: { left: 900, top: 300, width: 90, height: 20 } });
+    const left = host.style.left;
+    anchor.remove();
+    rect(anchor, { left: 0, top: 0, width: 0, height: 0 });
+    resized?.([], {} as ResizeObserver);
+    expect(host.isConnected).toBe(false);
+    expect(host.style.left).toBe(left);
+    expect(disconnect).toHaveBeenCalled();
+    close();
+  });
+
+  it("keeps only the current word card in one Reader viewport", () => {
+    const { host, anchor, container } = open({ containingBlock: false, anchor: { left: 100, top: 300, width: 90, height: 20 } });
+    const close = showWordPopup({ container, anchor, word: word(), sourceUrl: "https://news.ycombinator.com/item?id=1" });
+    expect(host.isConnected).toBe(false);
+    expect(container.querySelectorAll(".hnr-word-popup")).toHaveLength(1);
+    close();
+  });
+
   it("anchors under the word inside the reader column, not past the page edge", () => {
     // Anchor sits at x=1150 inside a column that starts at x=700 and is 800px wide.
     const { host, close } = open({ containingBlock: true, anchor: { left: 1150, top: 300, width: 90, height: 20 } });
@@ -370,8 +459,15 @@ describe("word popup placement", () => {
   });
 
   it("closes when the comment viewport scrolls", () => {
-    open({ containingBlock: true, anchor: { left: 900, top: 100, width: 60, height: 18 } });
-    window.dispatchEvent(new Event("scroll"));
-    expect(document.querySelector(".hnr-word-popup")).toBeNull();
+    const { host, container } = open({ containingBlock: true, shadow: true, anchor: { left: 900, top: 100, width: 60, height: 18 } });
+    const outsideScroll = vi.fn();
+    window.addEventListener("scroll", outsideScroll, true);
+    try {
+      container.dispatchEvent(new Event("scroll", { bubbles: false, composed: false }));
+      expect(outsideScroll).not.toHaveBeenCalled();
+      expect(host.isConnected).toBe(false);
+    } finally {
+      window.removeEventListener("scroll", outsideScroll, true);
+    }
   });
 });

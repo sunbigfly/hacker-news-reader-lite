@@ -103,7 +103,8 @@ describe("comment vocabulary section", () => {
   it("waits for the same dwell before opening a strip row's card", () => {
     vi.useFakeTimers();
     try {
-      const openWordPopup = vi.fn<(anchor: HTMLElement, word: VocabularyWord, hooks: unknown) => () => void>(() => () => {});
+      const close = vi.fn();
+      const openWordPopup = vi.fn<(anchor: HTMLElement, word: VocabularyWord, hooks: unknown) => () => void>(() => close);
       const { root, section } = mount({ openWordPopup });
       section.setWords([word("undermine")]);
       const label = root.querySelector<HTMLElement>(".hnr-word-label");
@@ -123,6 +124,7 @@ describe("comment vocabulary section", () => {
         onPointerLeave: expect.any(Function) as unknown,
       });
       section.destroy();
+      expect(close).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

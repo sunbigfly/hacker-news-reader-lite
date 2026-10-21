@@ -43,6 +43,20 @@ function marks(root: HTMLElement): HTMLElement[] {
 }
 
 describe("vocabulary highlights", () => {
+  it("disposes word bindings even after a translation has replaced their DOM", () => {
+    const { root } = fixture();
+    let disposed = 0;
+    const highlights = new VocabularyHighlights(() => () => { disposed += 1; });
+    highlights.apply([inkTarget(root)], [word()]);
+    const count = highlights.markCount;
+    expect(count).toBeGreaterThan(0);
+    root.replaceChildren("Updated translation");
+    highlights.clear();
+    expect(disposed).toBe(count);
+    highlights.clear();
+    expect(disposed).toBe(count);
+  });
+
   it("marks every occurrence of the exact word form, ignoring case", () => {
     const { root, highlights } = fixture();
     highlights.apply([inkTarget(root)], [word()]);

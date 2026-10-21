@@ -151,8 +151,10 @@ function chinesePattern(word: VocabularyWord, chinese: string): RegExp | null {
 export class VocabularyHighlights {
   readonly #roots = new Map<Element, readonly HTMLElement[]>();
   readonly #words = new Set<string>();
+  readonly #bindings: (() => void)[] = [];
 
-  constructor(readonly onMark?: (mark: HTMLElement, word: VocabularyWord, root: Element) => void) {}
+  /** A mark binding may return a disposer; ordinary notification callbacks need not return one. */
+  constructor(readonly onMark?: (mark: HTMLElement, word: VocabularyWord, root: Element) => unknown) {}
 
   get markCount(): number {
     let count = 0;
@@ -187,6 +189,7 @@ export class VocabularyHighlights {
   }
 
   clear(): void {
+    for (const dispose of this.#bindings.splice(0)) dispose();
     for (const [root, marks] of this.#roots) {
       for (const mark of marks) {
         if (!mark.isConnected) continue;
@@ -246,7 +249,10 @@ export class VocabularyHighlights {
         marks.push(mark);
       }
     }
-    for (const mark of marks) this.onMark?.(mark, word, target.root);
+    for (const mark of marks) {
+      const dispose = this.onMark?.(mark, word, target.root);
+      if (typeof dispose === "function") this.#bindings.push(dispose as () => void);
+    }
     return marks;
   }
 }

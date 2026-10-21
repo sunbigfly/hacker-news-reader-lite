@@ -37,7 +37,7 @@ export const WORD_CARD_CLOSE_DELAY_MS = 180;
  * A direct pointer (touch or pen) has no hover, so a tap pins the card until the next tap, an outside
  * press, scrolling, or Escape. The tap is consumed because a marked word can sit inside a link.
  */
-export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) => () => void): void {
+export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) => () => void): () => void {
   const view = anchor.ownerDocument.defaultView;
   let dismiss: (() => void) | undefined;
   let openTimer: number | null = null;
@@ -74,6 +74,7 @@ export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) =
   const show = (): void => {
     cancelOpen();
     cancelClose();
+    if (!anchor.isConnected || anchor.closest("[hidden]")) return;
     if (dismiss) return;
     dismiss = open({
       onPointerEnter: cancelClose,
@@ -120,13 +121,26 @@ export function bindWordCard(anchor: HTMLElement, open: (hooks: WordCardHooks) =
     pinned = true;
     show();
   };
+  const cancelPointer = (): void => { directPointerActivation = false; };
+  const onFocus = (): void => { if (!directPointerActivation) show(); };
+  const onBlur = (): void => { if (!pinned) close(); };
   anchor.addEventListener("pointerenter", scheduleOpen);
   anchor.addEventListener("pointerdown", rememberPointer);
-  anchor.addEventListener("pointercancel", () => { directPointerActivation = false; });
+  anchor.addEventListener("pointercancel", cancelPointer);
   anchor.addEventListener("click", activate);
-  anchor.addEventListener("focus", () => { if (!directPointerActivation) show(); });
+  anchor.addEventListener("focus", onFocus);
   anchor.addEventListener("pointerleave", leave);
-  anchor.addEventListener("blur", () => { if (!pinned) close(); });
+  anchor.addEventListener("blur", onBlur);
+  return () => {
+    close();
+    anchor.removeEventListener("pointerenter", scheduleOpen);
+    anchor.removeEventListener("pointerdown", rememberPointer);
+    anchor.removeEventListener("pointercancel", cancelPointer);
+    anchor.removeEventListener("click", activate);
+    anchor.removeEventListener("focus", onFocus);
+    anchor.removeEventListener("pointerleave", leave);
+    anchor.removeEventListener("blur", onBlur);
+  };
 }
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -232,12 +246,16 @@ export function bookmarkButton(document: Document, word: VocabularyWord): HTMLBu
   return element;
 }
 
+const activePopups = new WeakMap<HTMLElement, () => void>();
+
 /**
  * The hover card lives inside the Reader shell instead of the page body, so it cannot outlive the
  * shell and never participates in Hacker News' own stacking contexts. Callers get one disposer.
  */
 export function showWordPopup(options: WordPopupOptions): () => void {
   const { container, anchor, word, sourceUrl } = options;
+  if (!container.isConnected || !anchor.isConnected || anchor.closest("[hidden]")) return () => {};
+  activePopups.get(container)?.();
   const document = container.ownerDocument;
   const host = document.createElement("div");
   host.className = "hnr-word-popup";
@@ -311,7 +329,9 @@ export function showWordPopup(options: WordPopupOptions): () => void {
     if (closed) return;
     closed = true;
     observer?.disconnect();
+    if (activePopups.get(container) === close) activePopups.delete(container);
     stopWordSpeech();
+    container.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("resize", onScroll);
     document.removeEventListener("keydown", onKey, true);
@@ -323,6 +343,8 @@ export function showWordPopup(options: WordPopupOptions): () => void {
   };
   const onHostEnter = (): void => options.onPointerEnter?.();
   const onHostLeave = (): void => options.onPointerLeave?.();
+  activePopups.set(container, close);
+  container.addEventListener("scroll", onScroll, true);
   document.addEventListener("pointerdown", onOutsidePointer, true);
   window.addEventListener("scroll", onScroll, true);
   window.addEventListener("resize", onScroll);
@@ -331,9 +353,19 @@ export function showWordPopup(options: WordPopupOptions): () => void {
   host.addEventListener("pointerleave", onHostLeave);
   // The card's own size is read once: repositioning must not depend on the cap it applies itself.
   const naturalSize = { width: host.offsetWidth || DEFAULT_CARD_WIDTH, height: host.offsetHeight || DEFAULT_CARD_HEIGHT };
-  positionPopup(anchor, host, naturalSize);
-  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => positionPopup(anchor, host, naturalSize)) : undefined;
-  observer?.observe(host);
+  const reposition = (): void => {
+    if (!anchor.isConnected || !host.isConnected || anchor.closest("[hidden]")) {
+      close();
+      return;
+    }
+    positionPopup(anchor, host, naturalSize);
+  };
+  const observer = typeof ResizeObserver === "function" ? new ResizeObserver(reposition) : undefined;
+  reposition();
+  if (!closed) {
+    observer?.observe(host);
+    observer?.observe(anchor);
+  }
   return close;
 }
 
@@ -345,26 +377,26 @@ function isNone(value: string | undefined | null): boolean {
 /**
  * A fixed box is laid out against its containing block, which is not the viewport when an ancestor
  * establishes one. The Reader root sets `contain: layout paint style`; a transformed, filtered or
- * container-type ancestor would do the same. The outermost such ancestor wins, and its padding box
+ * container-type ancestor would do the same. The nearest such ancestor wins, and its padding box
  * is the rectangle the popup's offsets are measured against.
  */
 function fixedContainingBlock(element: Element): HTMLElement | null {
   const view = element.ownerDocument.defaultView;
   if (!view) return null;
-  let block: HTMLElement | null = null;
-  // A marked word sits inside further containing blocks, so the whole chain must be inspected.
-  for (let current = element.parentElement; current; current = current.parentElement) {
+  const parent = (node: Element): HTMLElement | null => {
+    if (node.parentElement) return node.parentElement;
+    const root = node.getRootNode();
+    return root instanceof ShadowRoot && root.host instanceof HTMLElement ? root.host : null;
+  };
+  for (let current = parent(element); current; current = parent(current)) {
     if (current === element.ownerDocument.documentElement) break;
     const style = view.getComputedStyle(current);
-    const positioned = !isNone(style.position);
     const contained = !isNone(style.transform) || !isNone(style.perspective) || !isNone(style.filter)
-      || !isNone(style.backdropFilter) || !isNone(style.contain)
-      || !isNone(style.containerType) || !isNone(style.willChange);
-    if (positioned || contained) block = current;
-    // A fixed ancestor owns its own containing block, which this walk cannot express.
-    if (style.position === "fixed") break;
+      || !isNone(style.backdropFilter) || /\b(layout|paint|strict|content)\b/.test(style.contain)
+      || !isNone(style.containerType) || /\b(transform|perspective|filter|contain)\b/.test(style.willChange);
+    if (contained) return current;
   }
-  return block;
+  return null;
 }
 
 /**
