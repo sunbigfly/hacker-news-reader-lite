@@ -2,7 +2,7 @@
 // @name         Hacker News Reader Lite
 // @name:zh-CN   Hacker News Reader Lite
 // @namespace    https://github.com/sunbigfly/hacker-news-reader-lite
-// @version      0.3.3
+// @version      0.3.4
 // @description  Fast Reddit-style Hacker News comments with translation, AI summaries and offline reading.
 // @description:zh-CN  为 Hacker News 提供 Reddit 式评论树、翻译、AI 总结与离线阅读。
 // @author       sunbigfly
@@ -1967,7 +1967,7 @@ button { color: inherit; }
 :host([data-translation-theme="underline"]) .hnr-bilingual-text .hnr-bilingual-translation-section { color: var(--hnr-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--hnr-accent) 58%, transparent); text-decoration-thickness: 1px; text-underline-offset: .18em; }
 :host([data-translation-theme="highlight"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .5em .7em; border-radius: .55em; background: color-mix(in srgb, var(--hnr-accent) 16%, transparent); color: var(--hnr-ink); }
 :host([data-translation-theme="paper"]) .hnr-bilingual-text .hnr-bilingual-translation-section { margin-top: .5em; padding: .65em .8em; border: 1px solid color-mix(in srgb, var(--hnr-line) 78%, transparent); border-radius: .6em; background: color-mix(in srgb, var(--hnr-paper-raised) 94%, var(--hnr-paper)); box-shadow: 0 .18em .55em rgb(15 23 42 / 7%); color: var(--hnr-ink); }
-.hnr-comment-actions { position: relative; z-index: 5; display: flex; align-items: center; gap: 5px; margin: 4px 0 0 var(--hnr-tree-rail-inset, 39px); width: max-content; }
+.hnr-comment-actions { position: relative; z-index: 5; display: flex; align-items: center; gap: 5px; margin: 4px 0 0 var(--hnr-tree-rail-inset, 39px); width: max-content; max-width: calc(100% - var(--hnr-tree-rail-inset, 39px)); }
 .hnr-comment-body[hidden], .hnr-comment-actions[hidden], .hnr-comment-body-collapsed[hidden] { display: none !important; }
 .hnr-comment-body-collapsed { display: inline-flex; flex: 0 0 auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--hnr-muted); font-size: 12px; line-height: 1.5; white-space: nowrap; cursor: pointer; }
 .hnr-comment-body-collapsed:hover { color: var(--hnr-accent-dark); }
@@ -2183,7 +2183,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
   .hnr-comment, .hnr-missing, .hnr-replies { --hnr-tree-max-depth: 3; --hnr-tree-step: 30px; --hnr-tree-origin: 21px; --hnr-tree-rail-inset: 27px; padding-left: calc(6px + var(--hnr-display-depth) * var(--hnr-tree-step)); padding-right: 6px; }
   .hnr-reply-settings { grid-template-columns: minmax(0, 1fr); }
   .hnr-tree-rail:not([data-level="0"], [data-level="1"], [data-level="2"], [data-level="3"]) { display: none; }
-  .hnr-comment-actions { width: auto; }
   .hnr-comment-head { flex-wrap: wrap; gap: 5px 8px; }
   .hnr-author { overflow-wrap: anywhere; }
   .hnr-summary-window { width: 100%; height: 100%; }
@@ -2204,7 +2203,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
   .hnr-actions-content { position: absolute; top: 100%; right: max(8px, env(safe-area-inset-right, 0px)); left: max(8px, env(safe-area-inset-left, 0px)); max-width: none; flex-wrap: wrap; gap: 4px; padding: 8px; visibility: hidden; border: 1px solid var(--hnr-line); border-radius: 8px; background: var(--hnr-paper-raised); box-shadow: var(--hnr-shadow); }
   .hnr-header-actions[data-expanded="true"] .hnr-actions-content { max-width: none; visibility: visible; }
   .hnr-commands { flex: 1 1 auto; flex-wrap: wrap; gap: 4px; }
-  .hnr-comment-action, .hnr-new-comments-nav, .hnr-new-comments-close { min-width: 44px; min-height: 44px; }
+  .hnr-comment-action { width: 44px; min-height: 44px; }
+  .hnr-new-comments-nav, .hnr-new-comments-close { min-width: 44px; min-height: 44px; }
   .hnr-summary-window-close, .hnr-settings-close, .hnr-download-history-action { min-width: 44px; min-height: 44px; }
   .hnr-comment[data-collapsed="false"] { padding-top: 6px; padding-bottom: 2px; }
   .hnr-comment[data-collapsed="false"] .hnr-tree-elbow { height: 21px; }
@@ -2213,7 +2213,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid color-mix(in srgb, va
   .hnr-branch-toggle::before { inset: 14.5px; }
   .hnr-comment[data-collapsed="true"] .hnr-branch-toggle { top: 0; }
   .hnr-comment[data-collapsed="true"][data-depth="0"] .hnr-branch-toggle { top: 4px; }
-  .hnr-comment-actions { flex-wrap: wrap; margin-top: 2px; }
+  .hnr-comment-actions { margin-top: 2px; }
   .hnr-settings :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])), .hnr-summary-window :is(button, select, input) { min-height: 44px; }
   .hnr-settings :is(input, select, textarea), .hnr-summary-window :is(input, select, textarea) { font-size: 16px; }
   .hnr-settings-search { height: auto; min-height: 44px; }

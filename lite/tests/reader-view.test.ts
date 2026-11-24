@@ -1580,6 +1580,15 @@ describe("ReaderView", () => {
     expect(css).toMatch(/--hnr-tree-rail-inset: 39px;/);
   });
 
+  it("keeps the comment actions on one line within the indented row", () => {
+    const css = readFileSync(resolve("lite/styles/10-reader.css"), "utf8");
+    const rows = css.match(/\.hnr-comment-actions\s*\{[^}]*\}/g) ?? [];
+    const buttons = css.match(/\.hnr-comment-action(?:\s*,[^{}]*)?\s*\{[^}]*\}/g) ?? [];
+    expect(rows[0]).toContain("max-width: calc(100% - var(--hnr-tree-rail-inset, 39px));");
+    expect(rows.join("\n")).not.toContain("flex-wrap: wrap;");
+    expect(buttons.join("\n")).not.toContain("min-width: 44px;");
+  });
+
   it("exposes the wordbook as a workbench tab that reads the live collection", () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document);
