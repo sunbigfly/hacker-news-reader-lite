@@ -274,7 +274,7 @@ describe("HnHostController", () => {
         <tr id="bigbox"><td><table><tbody>
           <tr class="athing" id="49327487">
             <td class="ind"></td><td class="votelinks"><a href="vote?id=49327487">vote</a></td>
-            <td class="default"><div><span class="comhead"><a class="hnuser" href="user?id=alice">alice</a> | <a href="item?id=49327487">0 minutes ago</a><span class="navs"> | <a href="item?id=456">parent</a> | <a href="item?id=777#49327487">context</a></span><span class="onstory"> | on: <a href="item?id=777">Story</a></span></span></div><br>
+            <td class="default"><div><span class="comhead"><a href="user?id=alice">alice</a> | <a href="item?id=49327487">0 minutes ago</a><span class="navs"> | <a href="item?id=456">parent</a> | <a href="item?id=777#49327487">context</a></span><span class="onstory"> | on: <a href="item?id=777">Story</a></span></span></div><br>
               <div class="comment"><div class="commtext c00">Original <code>npm test</code>. <a href="https://example.com/docs">Docs</a></div><div class="reply"></div></div>
             </td>
           </tr>
@@ -322,6 +322,7 @@ describe("HnHostController", () => {
     expect(document.querySelector("table.hnr-comment-list")).not.toBeNull();
     const card = document.querySelector<HTMLTableRowElement>('[data-hnr-comment-card="49327487"]');
     expect(card?.dataset.hnrCommentStory).toBe("777");
+    expect(card?.getAttribute("aria-label")).toBe("Open alice's comment in Reader");
     expect(card?.tabIndex).toBe(0);
     expect(document.querySelector('[data-hnr-comment-card-spacer="49327487"]')).not.toBeNull();
     const pendingTranslation = document.querySelector('[data-hnr-comment-translation="49327487"]');

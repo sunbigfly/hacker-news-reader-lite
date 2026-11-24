@@ -758,7 +758,7 @@ html.hnr-host-comments .comhead {
   font: 550 11px/1.45 ui-sans-serif, system-ui, sans-serif;
 }
 
-html.hnr-host-comments .comhead .hnuser {
+html.hnr-host-comments .comhead :is(a[href^="user?id="], .hnuser) {
   color: var(--hnr-host-ink);
   font-weight: 700;
 }

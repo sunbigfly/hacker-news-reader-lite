@@ -1,5 +1,6 @@
 import { LifecycleScope } from "../kernel/lifecycle";
 import type { CommentId, StoryId } from "../thread/model";
+import { readHnAuthor } from "./hn-dom-adapter";
 import { findHnListTable, findHnMoreLink } from "./hn-list-dom";
 import { parseHnRoute, type HnRoute } from "./hn-route";
 
@@ -709,7 +710,7 @@ export class HnHostController {
       if (storyId !== null) {
         ownAttribute(scope, row, "data-hnr-comment-story", String(storyId));
         ownAttribute(scope, row, "tabindex", "0");
-        const author = row.querySelector<HTMLElement>(".comhead .hnuser")?.textContent?.trim();
+        const author = readHnAuthor(row.querySelector(".comhead"));
         ownAttribute(
           scope,
           row,

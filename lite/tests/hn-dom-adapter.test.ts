@@ -10,7 +10,9 @@ describe("HN DOM adapter", () => {
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const snapshot = parseHnDocument(document, 1234);
     expect(snapshot.story.id).toBe(100);
+    expect(snapshot.story.author).toBe("alice");
     expect(snapshot.story.childIds).toEqual([101, 104]);
+    expect(snapshot.comments.map((comment) => comment.author)).toEqual(["bob", "carol", "dave", null]);
     expect(snapshot.comments.map((comment) => [comment.id, comment.parentId, comment.rank])).toEqual([
       [101, 100, 0],
       [102, 101, 0],
@@ -27,16 +29,17 @@ describe("HN DOM adapter", () => {
       <head><base href="https://news.ycombinator.com/news"></head>
       <body><table>
         <tr class="athing" id="42"><td class="title"><span class="titleline"><a href="https://example.com/story">Story</a></span></td></tr>
-        <tr><td class="subtext"><span class="score">12 points</span> by <a class="hnuser">alice</a> | <a class="comments">80 comments</a></td></tr>
+        <tr><td class="subtext"><span class="score">12 points</span> by <a href="user?id=alice">alice</a> | <a class="comments">80 comments</a></td></tr>
       </table></body>`;
     const preview = parseHnStoryPreview(document, 42 as never, 1_000);
-    expect(preview?.story).toMatchObject({ id: 42, title: "Story", descendants: 80 });
+    expect(preview?.story).toMatchObject({ id: 42, title: "Story", author: "alice", descendants: 80 });
     expect(preview?.comments).toHaveLength(0);
     expect(preview?.complete).toBe(false);
 
     document.documentElement.innerHTML = readFileSync(resolve("lite/fixtures/hn-item.html"), "utf8");
     const optimistic = parseHnDocument(document, 1_000, 2);
     expect(optimistic.comments.map((comment) => comment.id)).toEqual([101, 102]);
+    expect(optimistic.comments.map((comment) => comment.author)).toEqual(["bob", "carol"]);
     expect(optimistic.story.childIds).toEqual([101]);
     expect(optimistic.complete).toBe(false);
   });

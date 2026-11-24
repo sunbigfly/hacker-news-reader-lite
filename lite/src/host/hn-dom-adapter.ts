@@ -26,6 +26,12 @@ function storySubtext(row: Element): Element | null {
   return row.nextElementSibling?.querySelector(".subtext") ?? null;
 }
 
+export function readHnAuthor(metadata: Element | null): string | null {
+  return metadata?.querySelector('a[href^="user?id="]')?.textContent?.trim()
+    || metadata?.querySelector(".hnuser")?.textContent?.trim()
+    || null;
+}
+
 function storyFromRow(
   document: Document,
   storyRow: HTMLTableRowElement,
@@ -44,7 +50,7 @@ function storyFromRow(
     id,
     title,
     url: titleLink?.href && !titleLink.href.startsWith("https://news.ycombinator.com/item") ? titleLink.href : null,
-    author: subtext?.querySelector<HTMLElement>(".hnuser")?.textContent?.trim() || null,
+    author: readHnAuthor(subtext),
     score: parseInteger(subtext?.querySelector(".score")?.textContent),
     html: storyHtml,
     childIds,
@@ -112,7 +118,7 @@ export function parseHnDocument(
     const commentElement = row.querySelector<HTMLElement>(".commtext");
     const html = commentElement?.innerHTML ?? "";
     const text = (commentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
-    const author = row.querySelector<HTMLElement>(".hnuser")?.textContent?.trim() || null;
+    const author = readHnAuthor(row.querySelector(".comhead"));
     mutableComments.push({
       id: idValue,
       storyId: id,
